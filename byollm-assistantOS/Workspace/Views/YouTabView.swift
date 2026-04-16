@@ -144,7 +144,7 @@ struct YouTabView: View {
         Task { @MainActor in
             defer { signingOut = false }
             do {
-                try await Clerk.shared.signOut()
+                try await Clerk.shared.auth.signOut()
             } catch {
                 self.signOutError = "Sign out failed: \(error.localizedDescription)"
             }
