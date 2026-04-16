@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Monolith iOS — Mockups v0.3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    /* Monolith palette — Void to Snow */
+    --void:      #08090A;
+    --obsidian:  #0F1011;
+    --stone:     #16181A;
+    --slate:     #1C1F22;
+    --graphite:  #262A2E;
+    --iron:      #3A3F44;
+    --ash:       #6B7075;
+    --fog:       #9CA1A6;
+    --mist:      #C8CCD0;
+    --snow:      #F2F3F4;
+
+    /* Raava gradient — whisper accent only */
+    --blue:   #224AE8;
+    --violet: #716EFF;
+    --teal:   #00BDB7;
+
+    /* State */
+    --running: #4ADE80;
+    --idle:    #6B7075;
+    --error:   #F87171;
+  }
+
+  html, body {
+    background: var(--void);
+    color: var(--snow);
+    font-family: 'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+</style>
+</head>
+<body>
+<!--
+  Design spec v0.3 — six screens:
+    01 workspace.home
+    02 channel.view
+    03 dm.agent
+    04 thread.panel
+    05 agent.profile
+    06 invite.agent
+
+  Full HTML with all six mockup blocks lives in chat history (pasted 2026-04-16).
+  This file is a palette/token reference only. See chat transcript for the full
+  canvas markup when extracting screen-specific component structures.
+
+  Tokens (map into MonolithTheme.swift):
+    Palette grayscale (10 stops): void, obsidian, stone, slate, graphite, iron,
+      ash, fog, mist, snow
+    Accent gradient: blue #224AE8 → violet #716EFF → teal #00BDB7 (whisper only)
+    State: running #4ADE80, idle #6B7075, error #F87171
+    Type: JetBrains Mono (agents/meta), IBM Plex Sans (humans/body),
+      IBM Plex Serif (reserved)
+    Avatars: humans = circles; agents = rounded squares with left vertical slit
+-->
+</body>
+</html>

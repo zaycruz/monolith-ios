@@ -6,12 +6,18 @@
 //
 
 import SwiftUI
+import ClerkKit
 
 @main
 struct byollm_assistantOSApp: App {
+    init() {
+        ClerkBootstrap.configure()
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            AuthGatedRootView()
+                .environment(Clerk.shared)
         }
     }
 }

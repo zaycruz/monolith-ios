@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		4F3FC9BBAA77644720F0B45F /* ClerkKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 6E71283780044BA08495AE8D /* ClerkKitUI */; };
+		81D9DB4BAB7E24644C87918F /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3A3C2DAFD6C89D0FD68EDFBF /* ClerkKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		AF32B4A72ECAAA8A0037643D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -75,6 +80,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				81D9DB4BAB7E24644C87918F /* ClerkKit in Frameworks */,
+				4F3FC9BBAA77644720F0B45F /* ClerkKitUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -135,6 +142,8 @@
 			);
 			name = "byollm-assistantOS";
 			packageProductDependencies = (
+				3A3C2DAFD6C89D0FD68EDFBF /* ClerkKit */,
+				6E71283780044BA08495AE8D /* ClerkKitUI */,
 			);
 			productName = "byollm-assistantOS";
 			productReference = AF32B4992ECAAA890037643D /* byollm-assistantOS.app */;
@@ -157,8 +166,6 @@
 				AF32B4A92ECAAA8A0037643D /* byollm-assistantOSTests */,
 			);
 			name = "byollm-assistantOSTests";
-			packageProductDependencies = (
-			);
 			productName = "byollm-assistantOSTests";
 			productReference = AF32B4A62ECAAA8A0037643D /* byollm-assistantOSTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -180,8 +187,6 @@
 				AF32B4B32ECAAA8A0037643D /* byollm-assistantOSUITests */,
 			);
 			name = "byollm-assistantOSUITests";
-			packageProductDependencies = (
-			);
 			productName = "byollm-assistantOSUITests";
 			productReference = AF32B4B02ECAAA8A0037643D /* byollm-assistantOSUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -218,6 +223,9 @@
 			);
 			mainGroup = AF32B4902ECAAA880037643D;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				EE8873EDE25D8316964E62E7 /* XCRemoteSwiftPackageReference "clerk-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AF32B49A2ECAAA890037643D /* Products */;
 			projectDirPath = "";
@@ -419,6 +427,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = "byollm-assistantOS/byollm-assistantOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = RA5ZRTAX47;
@@ -450,6 +459,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = "byollm-assistantOS/byollm-assistantOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = RA5ZRTAX47;
@@ -589,6 +599,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		EE8873EDE25D8316964E62E7 /* XCRemoteSwiftPackageReference "clerk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/clerk/clerk-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.9;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3A3C2DAFD6C89D0FD68EDFBF /* ClerkKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EE8873EDE25D8316964E62E7 /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = ClerkKit;
+		};
+		6E71283780044BA08495AE8D /* ClerkKitUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EE8873EDE25D8316964E62E7 /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = ClerkKitUI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AF32B4912ECAAA880037643D /* Project object */;
 }
