@@ -38,23 +38,17 @@ struct YouTabView: View {
         .background(MonolithTheme.Colors.bgBase.ignoresSafeArea())
     }
 
-    // MARK: header
+    // MARK: header — large IBM Plex Sans title matching the v0.3 Activity/DMs pattern
     private var header: some View {
-        HStack(spacing: MonolithTheme.Spacing.sm) {
-            Text("YOU")
-                .font(MonolithFont.mono(size: 12, weight: .bold))
-                .tracking(0.72)
+        HStack {
+            Text("You")
+                .font(MonolithFont.sans(size: 28, weight: .semibold))
                 .foregroundColor(MonolithTheme.Colors.textPrimary)
             Spacer()
         }
         .padding(.horizontal, MonolithTheme.Spacing.lg)
-        .padding(.vertical, MonolithTheme.Spacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(MonolithTheme.Colors.bgSurface)
-        .overlay(
-            Rectangle().fill(MonolithTheme.Colors.bgElevated).frame(height: 1),
-            alignment: .bottom
-        )
+        .padding(.top, MonolithTheme.Spacing.lg)
+        .padding(.bottom, MonolithTheme.Spacing.sm)
     }
 
     // MARK: profile card — avatar + name + email
@@ -94,8 +88,8 @@ struct YouTabView: View {
     private var settingsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("SETTINGS")
-                .font(MonolithFont.mono(size: 10, weight: .medium))
-                .tracking(0.6)
+                .font(MonolithFont.sans(size: 11, weight: .semibold))
+                .tracking(0.3)
                 .foregroundColor(MonolithTheme.Colors.textTertiary)
                 .padding(.horizontal, MonolithTheme.Spacing.lg)
                 .padding(.bottom, MonolithTheme.Spacing.sm)
@@ -110,26 +104,27 @@ struct YouTabView: View {
                 .foregroundColor(MonolithTheme.Colors.textSecondary)
             Spacer()
             Text(value)
-                .font(MonolithFont.mono(size: 10, weight: .medium))
+                .font(MonolithFont.sans(size: 12))
                 .foregroundColor(MonolithTheme.Colors.textMuted)
         }
         .padding(.horizontal, MonolithTheme.Spacing.lg)
         .padding(.vertical, MonolithTheme.Spacing.md)
-        .background(MonolithTheme.Colors.bgSurface)
+        .background(Color.white.opacity(0.02))
     }
 
-    // MARK: sign-out
+    // MARK: sign-out — glass secondary button treatment
     private var signOutButton: some View {
         Button(action: signOut) {
             Text(signingOut ? "Signing out…" : "Sign out")
-                .font(MonolithFont.mono(size: 12, weight: .bold))
-                .tracking(0.72)
+                .font(MonolithFont.sans(size: 14, weight: .semibold))
                 .foregroundColor(MonolithTheme.Colors.textPrimary)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(
-                    RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
-                        .stroke(MonolithTheme.Colors.borderStrong, lineWidth: 1)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(Color.white.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(MonolithTheme.Glass.border, lineWidth: 1)
                 )
+                .clipShape(RoundedRectangle(cornerRadius: 14))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

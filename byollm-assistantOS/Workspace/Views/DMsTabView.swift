@@ -2,9 +2,10 @@
 //  DMsTabView.swift
 //  Workspace
 //
-//  Tab screen — dedicated list of direct messages, one row per DM with
-//  member + unread count. Tapping an agent DM opens AgentDMView; human
-//  DMs render as rows but taps are a no-op (mock has no human DM view).
+//  Tab screen — dedicated list of direct messages. v0.3 treatment:
+//  - Large "Direct messages" title header (IBM Plex Sans 28pt)
+//  - Row uses MemberAvatarWithPresence, 56pt row height, preview + time,
+//    unread badge (snow capsule) on the right.
 //
 
 import SwiftUI
@@ -54,13 +55,8 @@ struct DMsTabView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(viewModel.dms) { dm in
                         row(dm)
-                        Rectangle()
-                            .fill(MonolithTheme.Colors.borderSoft)
-                            .frame(height: 1)
-                            .padding(.leading, MonolithTheme.Spacing.lg + 32 + MonolithTheme.Spacing.md)
                     }
                 }
-                .padding(.top, MonolithTheme.Spacing.sm)
             }
         }
         .background(MonolithTheme.Colors.bgBase.ignoresSafeArea())
@@ -73,21 +69,15 @@ struct DMsTabView: View {
 
     // MARK: header
     private var header: some View {
-        HStack(spacing: MonolithTheme.Spacing.sm) {
-            Text("DIRECT MESSAGES")
-                .font(MonolithFont.mono(size: 12, weight: .bold))
-                .tracking(0.72)
+        HStack {
+            Text("Direct messages")
+                .font(MonolithFont.sans(size: 28, weight: .semibold))
                 .foregroundColor(MonolithTheme.Colors.textPrimary)
             Spacer()
         }
         .padding(.horizontal, MonolithTheme.Spacing.lg)
-        .padding(.vertical, MonolithTheme.Spacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(MonolithTheme.Colors.bgSurface)
-        .overlay(
-            Rectangle().fill(MonolithTheme.Colors.bgElevated).frame(height: 1),
-            alignment: .bottom
-        )
+        .padding(.top, MonolithTheme.Spacing.lg)
+        .padding(.bottom, MonolithTheme.Spacing.sm)
     }
 
     // MARK: row
@@ -99,35 +89,29 @@ struct DMsTabView: View {
             }
             .buttonStyle(.plain)
         } else {
-            // Human DM — render but tap is a no-op (no human DM view yet).
             rowContent(dm)
         }
     }
 
     private func rowContent(_ dm: DirectMessage) -> some View {
         HStack(spacing: MonolithTheme.Spacing.md) {
-            switch dm.counterpart.kind {
-            case .human(let h): HumanAvatar(human: h, size: .lg)
-            case .agent(let a): AgentAvatar(agent: a, size: .lg)
-            }
+            MemberAvatarWithPresence(member: dm.counterpart, size: .lg)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(dm.counterpart.displayName)
                         .font(dm.counterpart.isAgent
-                              ? MonolithFont.mono(size: 14, weight: .medium)
-                              : MonolithFont.sans(size: 15, weight: .medium))
+                              ? MonolithFont.mono(size: 14, weight: .semibold)
+                              : MonolithFont.sans(size: 16, weight: .semibold))
                         .foregroundColor(MonolithTheme.Colors.textPrimary)
                     if dm.counterpart.isAgent {
-                        Text("AGENT")
-                            .font(MonolithFont.mono(size: 9, weight: .medium))
-                            .tracking(0.6)
+                        Text("agent")
+                            .font(MonolithFont.mono(size: 10, weight: .medium))
                             .foregroundColor(MonolithTheme.Colors.textTertiary)
-                            .padding(.horizontal, 5)
+                            .padding(.horizontal, 6)
                             .padding(.vertical, 1)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: MonolithTheme.Radius.sm)
-                                    .stroke(MonolithTheme.Colors.borderStrong, lineWidth: 1)
-                            )
+                            .background(Color.white.opacity(0.04))
+                            .overlay(Capsule().stroke(MonolithTheme.Glass.border, lineWidth: 1))
+                            .clipShape(Capsule())
                     }
                 }
                 Text(preview(for: dm))
@@ -136,21 +120,24 @@ struct DMsTabView: View {
                     .lineLimit(1)
             }
             Spacer()
-            if dm.unread > 0 { unreadBadge(dm.unread) }
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(timeLabel(for: dm))
+                    .font(MonolithFont.sans(size: 11))
+                    .foregroundColor(MonolithTheme.Colors.textMuted)
+                if dm.unread > 0 { unreadBadge(dm.unread) }
+            }
         }
-        .padding(.horizontal, MonolithTheme.Spacing.lg)
+        .padding(.horizontal, MonolithTheme.Spacing.xl)
         .padding(.vertical, MonolithTheme.Spacing.md)
-        .frame(minHeight: 44)
+        .frame(minHeight: 56)
         .contentShape(Rectangle())
     }
 
-    /// Preview copy — for agent DMs the mock has fixtures; everything else
-    /// falls back to a muted hint.
     private func preview(for dm: DirectMessage) -> String {
         switch dm.counterpart.kind {
         case .agent(let a):
             switch a.handle {
-            case "dispatch": return "drafted TLH reply for Greg — ready for your review"
+            case "dispatch": return "drafted TLH reply for Greg — ready for review"
             case "scout":    return "JobNimbus mapping paused — awaiting sample data"
             case "warden":   return "overnight recon complete, no critical findings"
             case "pulse":    return "standby — no active task"
@@ -162,15 +149,28 @@ struct DMsTabView: View {
         }
     }
 
+    private func timeLabel(for dm: DirectMessage) -> String {
+        switch dm.counterpart.kind {
+        case .agent(let a):
+            switch a.handle {
+            case "dispatch": return "2:05 PM"
+            case "scout":    return "8:51 AM"
+            case "warden":   return "8:54 AM"
+            case "herald":   return "yesterday"
+            default:         return "—"
+            }
+        case .human: return "11:24 AM"
+        }
+    }
+
     private func unreadBadge(_ count: Int) -> some View {
         Text("\(count)")
-            .font(MonolithFont.mono(size: 10, weight: .bold))
+            .font(MonolithFont.sans(size: 11, weight: .bold))
             .foregroundColor(MonolithTheme.Palette.void)
-            .frame(minWidth: 20)
+            .frame(minWidth: 22, minHeight: 22)
             .padding(.horizontal, 6)
-            .padding(.vertical, 2)
             .background(MonolithTheme.Palette.snow)
-            .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.pill))
+            .clipShape(Capsule())
     }
 }
 

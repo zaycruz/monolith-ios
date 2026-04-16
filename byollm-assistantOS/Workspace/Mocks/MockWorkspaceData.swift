@@ -38,19 +38,25 @@ enum MockHumans {
         id: HumanID("h_zay"),
         displayName: "Zay Cruz",
         initials: "ZC",
-        colorHex: "#3B5BDB"
+        colorHex: "#3B5BDB",
+        gradientTopHex: "#5C7CFA",
+        online: true
     )
     static let sofia = Human(
         id: HumanID("h_sofia"),
         displayName: "Sofia Chang",
         initials: "SC",
-        colorHex: "#7048E8"
+        colorHex: "#7048E8",
+        gradientTopHex: "#9775FA",
+        online: true
     )
     static let jason = Human(
         id: HumanID("h_jason"),
         displayName: "Jason Kowalski",
         initials: "JK",
-        colorHex: "#0EA5E9"
+        colorHex: "#0EA5E9",
+        gradientTopHex: "#38BDF8",
+        online: false
     )
 }
 
@@ -78,7 +84,13 @@ enum MockAgents {
         region: "us-east-4",
         uptimeSeconds: 128 * 3600 + 14 * 60, // 128h 14m
         model: "anthropic claude-opus-4-6",
-        tokens24h: 184_220
+        tokens24h: 184_220,
+        connectedTools: [
+            AgentTool(id: "slack.mcp",    name: "slack.mcp",    abbreviation: "sl", origin: "global · oauth",    status: .ok),
+            AgentTool(id: "gmail.mcp",    name: "gmail.mcp",    abbreviation: "gm", origin: "workspace · oauth", status: .ok),
+            AgentTool(id: "calendar.mcp", name: "calendar.mcp", abbreviation: "ca", origin: "workspace · oauth", status: .ok),
+            AgentTool(id: "supabase.mcp", name: "supabase.mcp", abbreviation: "sb", origin: "project · pat",     status: .warn)
+        ]
     )
     static let scout = Agent(
         id: AgentID("a_scout"),

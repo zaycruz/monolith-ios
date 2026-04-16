@@ -33,6 +33,11 @@ struct WorkspaceTabShell: View {
     @State private var showingInvite: Bool = false
     @State private var showingAgentProfile: AgentID?
 
+    // Unread badges. Static from the mock repo for now — live counts will
+    // come from the workspace + notification repos once wired.
+    @State private var unreadDMs: Int = 3
+    @State private var unreadActivity: Int = 12
+
     init(
         workspaceRepo: WorkspaceRepository,
         conversationRepo: ConversationRepository,
@@ -66,7 +71,11 @@ struct WorkspaceTabShell: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            TabBar(selection: $selectedTab)
+            TabBar(
+                selection: $selectedTab,
+                unreadDMs: unreadDMs,
+                unreadActivity: unreadActivity
+            )
         }
         .background(MonolithTheme.Colors.bgBase.ignoresSafeArea())
         .preferredColorScheme(.dark)

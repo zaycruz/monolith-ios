@@ -3,6 +3,7 @@
 //  Workspace
 //
 //  The "3 replies · avatars" link that sits below a parent message.
+//  v0.3 treatment: 8pt 14pt padding, 12pt radius, glass background.
 //
 
 import SwiftUI
@@ -21,18 +22,19 @@ struct ThreadLink: View {
             HStack(spacing: MonolithTheme.Spacing.sm) {
                 avatarStack
                 Text(replyLabel)
-                    .font(MonolithFont.mono(size: 11, weight: .medium))
-                    .foregroundColor(MonolithTheme.Colors.accent)
+                    .font(MonolithFont.sans(size: 13, weight: .medium))
+                    .foregroundColor(MonolithTheme.Colors.textSecondary)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, MonolithTheme.Spacing.sm)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
             .frame(minHeight: 44)
-            .background(MonolithTheme.Colors.bgElevated)
+            .background(Color.white.opacity(0.03))
             .overlay(
-                RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
-                    .stroke(MonolithTheme.Colors.borderSoft, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(MonolithTheme.Glass.border, lineWidth: 1)
             )
-            .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -48,12 +50,12 @@ struct ThreadLink: View {
             ForEach(summary.participants.prefix(3)) { member in
                 avatar(for: member)
                     .overlay(
-                        Circle().stroke(MonolithTheme.Colors.bgElevated, lineWidth: 1.5)
+                        Circle().stroke(MonolithTheme.Palette.obsidian, lineWidth: 1.5)
                             .opacity(member.isAgent ? 0 : 1)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: MonolithTheme.AvatarSize.sm.agentCornerRadius)
-                            .stroke(MonolithTheme.Colors.bgElevated, lineWidth: 1.5)
+                            .stroke(MonolithTheme.Palette.obsidian, lineWidth: 1.5)
                             .opacity(member.isAgent ? 1 : 0)
                     )
             }

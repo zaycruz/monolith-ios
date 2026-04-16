@@ -2,15 +2,36 @@
 //  AgentProfileSheet.swift
 //  Workspace
 //
-//  Screen 05 — agent profile sheet. Opens from a message author or a DM header.
+//  Screen 04 — Agent detail. Rebuilt from the v0.2 profile sheet to the
+//  v0.3 layout (kept the `AgentProfileSheet` name to avoid touching the
+//  shell wiring; the contents are effectively AgentDetailView now).
+//
+//  Layout:
+//  - Glass nav (back + title "agent detail" + ellipsis)
+//  - Hero: 56pt avatar centered, name (JBM 20pt semibold), role sub,
+//    green-tinted running · healthy pill
+//  - Glass tab selector (Overview / Tools / Logs / Config)
+//  - KV rows for Instance + Model blocks
+//  - Tools list (36pt icon + 2-letter abbrev + origin + status;
+//    supabase.mcp shows amber warn)
+//  - Three action buttons (Open terminal, Message dispatch,
+//    Stop agent — danger variant)
 //
 
 import SwiftUI
 
 @MainActor
-final class AgentProfileViewModel: ObservableObject {
+final class AgentDetailViewModel: ObservableObject {
     @Published var agent: Agent?
     @Published var errorMessage: String?
+    @Published var selectedTab: Tab = .overview
+
+    enum Tab: String, CaseIterable {
+        case overview = "Overview"
+        case tools    = "Tools"
+        case logs     = "Logs"
+        case config   = "Config"
+    }
 
     let agentID: AgentID
     private let agentRepo: AgentRepository
@@ -29,8 +50,10 @@ final class AgentProfileViewModel: ObservableObject {
     }
 }
 
+/// Retained name `AgentProfileSheet` for shell compatibility; the type
+/// behaves like an AgentDetailView per v0.3 spec.
 struct AgentProfileSheet: View {
-    @StateObject private var viewModel: AgentProfileViewModel
+    @StateObject private var viewModel: AgentDetailViewModel
     var onClose: (() -> Void)?
 
     init(
@@ -39,7 +62,7 @@ struct AgentProfileSheet: View {
         onClose: (() -> Void)? = nil
     ) {
         self._viewModel = StateObject(
-            wrappedValue: AgentProfileViewModel(
+            wrappedValue: AgentDetailViewModel(
                 agentID: agentID,
                 agentRepo: agentRepo
             )
@@ -49,16 +72,18 @@ struct AgentProfileSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            navBar
             if let agent = viewModel.agent {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: MonolithTheme.Spacing.xl) {
-                        identityBlock(agent)
-                        metaBlock(agent)
-                        runtimeBlock(agent)
-                        modelBlock(agent)
+                    VStack(spacing: MonolithTheme.Spacing.xl) {
+                        hero(agent)
+                        tabSelector
+                        content(for: agent)
+                        actionButtons(agent)
+                        Spacer().frame(height: MonolithTheme.Spacing.xxl)
                     }
-                    .padding(MonolithTheme.Spacing.lg)
+                    .padding(.horizontal, MonolithTheme.Spacing.lg)
+                    .padding(.top, MonolithTheme.Spacing.lg)
                 }
             } else {
                 Spacer()
@@ -68,137 +93,316 @@ struct AgentProfileSheet: View {
         .task { await viewModel.load() }
     }
 
-    // MARK: header
-    private var header: some View {
-        HStack {
-            Text("AGENT PROFILE")
-                .font(MonolithFont.mono(size: 11, weight: .medium))
-                .tracking(0.6)
-                .foregroundColor(MonolithTheme.Colors.textTertiary)
-            Spacer()
-            Button(action: { onClose?() }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(MonolithTheme.Colors.textTertiary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+    // MARK: nav
+    private var navBar: some View {
+        GlassNavBar(
+            leading: {
+                GlassNavCloseButton(onTap: { onClose?() })
+            },
+            title: {
+                GlassNavTitle(title: "agent detail", titleIsMono: true)
+            },
+            trailing: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(MonolithTheme.Colors.textSecondary)
+                    .frame(width: 36, height: 36)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-        }
-        .padding(.leading, MonolithTheme.Spacing.lg)
-        .padding(.trailing, MonolithTheme.Spacing.xs)
-        .frame(minHeight: 44)
-        .background(MonolithTheme.Colors.bgSurface)
-        .overlay(
-            Rectangle().fill(MonolithTheme.Colors.borderSoft).frame(height: 1),
-            alignment: .bottom
         )
     }
 
-    private func identityBlock(_ agent: Agent) -> some View {
-        HStack(spacing: MonolithTheme.Spacing.lg) {
-            AgentAvatar(agent: agent, size: .xxl)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(agent.handle)
-                        .font(MonolithFont.mono(size: 20, weight: .bold))
-                        .foregroundColor(MonolithTheme.Colors.textPrimary)
-                    Text("AGENT")
-                        .font(MonolithFont.mono(size: 9, weight: .medium))
-                        .tracking(0.6)
-                        .foregroundColor(MonolithTheme.Colors.textTertiary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: MonolithTheme.Radius.sm)
-                                .stroke(MonolithTheme.Colors.borderStrong, lineWidth: 1)
-                        )
-                }
-                Text(statusLabel(for: agent.status))
-                    .font(MonolithFont.mono(size: 11))
-                    .foregroundColor(statusColor(for: agent.status))
+    // MARK: hero
+    private func hero(_ agent: Agent) -> some View {
+        VStack(spacing: MonolithTheme.Spacing.md) {
+            AvatarWithPresence(agent: agent, size: .xxl)
+            VStack(spacing: 4) {
+                Text(agent.handle)
+                    .font(MonolithFont.mono(size: 20, weight: .semibold))
+                    .foregroundColor(MonolithTheme.Colors.textPrimary)
+                Text(roleLabel(for: agent))
+                    .font(MonolithFont.sans(size: 13))
+                    .foregroundColor(MonolithTheme.Colors.textTertiary)
             }
-            Spacer()
+            AgentStatusPill(status: agent.status, label: statusLabel(for: agent.status))
         }
+        .frame(maxWidth: .infinity)
     }
 
-    private func metaBlock(_ agent: Agent) -> some View {
-        VStack(alignment: .leading, spacing: MonolithTheme.Spacing.sm) {
-            sectionTitle("MEMBERSHIP")
-            if let joined = agent.joinedAt {
-                kv("joined", Self.dateFormatter.string(from: joined))
-            }
-            if agent.invitedBy != nil {
-                kv("invited by", "Zay Cruz")
-            }
-            kv("channels", "\(agent.channelIDs.count)")
+    private func roleLabel(for agent: Agent) -> String {
+        switch agent.template {
+        case "researcher": return "researcher"
+        case "engineer":   return "engineer"
+        case "operator":   return "operator · ops desk"
+        default:           return agent.template ?? "agent"
         }
-    }
-
-    private func runtimeBlock(_ agent: Agent) -> some View {
-        VStack(alignment: .leading, spacing: MonolithTheme.Spacing.sm) {
-            sectionTitle("RUNTIME")
-            if let size = agent.instanceSize { kv("instance", size) }
-            if let vcpu = agent.vcpu { kv("vcpu", "\(vcpu)") }
-            if let mem = agent.memoryGB { kv("memory", "\(mem) gb") }
-            if let region = agent.region { kv("region", region) }
-            if let uptime = agent.uptimeSeconds { kv("uptime", Self.formatUptime(uptime)) }
-        }
-    }
-
-    private func modelBlock(_ agent: Agent) -> some View {
-        VStack(alignment: .leading, spacing: MonolithTheme.Spacing.sm) {
-            sectionTitle("MODEL")
-            if let model = agent.model { kv("provider/model", model) }
-            if let tokens = agent.tokens24h {
-                kv("tokens 24h", Self.numberFormatter.string(from: NSNumber(value: tokens)) ?? "\(tokens)")
-            }
-        }
-    }
-
-    private func sectionTitle(_ title: String) -> some View {
-        Text(title)
-            .font(MonolithFont.mono(size: 10, weight: .medium))
-            .tracking(0.6)
-            .foregroundColor(MonolithTheme.Colors.textTertiary)
-    }
-
-    private func kv(_ k: String, _ v: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(k)
-                .font(MonolithFont.mono(size: 12))
-                .foregroundColor(MonolithTheme.Colors.textTertiary)
-            Spacer()
-            Text(v)
-                .font(MonolithFont.mono(size: 12))
-                .foregroundColor(MonolithTheme.Colors.textPrimary)
-        }
-        .padding(.vertical, 2)
     }
 
     private func statusLabel(for status: AgentStatus) -> String {
         switch status {
-        case .running: return "● running"
-        case .idle:    return "○ idle"
-        case .error:   return "! error"
+        case .running: return "running · healthy"
+        case .idle:    return "idle · standby"
+        case .error:   return "error"
         }
     }
 
-    private func statusColor(for status: AgentStatus) -> Color {
-        switch status {
-        case .running: return MonolithTheme.Colors.statusRunning
-        case .idle:    return MonolithTheme.Colors.statusIdle
-        case .error:   return MonolithTheme.Colors.statusError
+    // MARK: tab selector
+    private var tabSelector: some View {
+        HStack(spacing: 4) {
+            ForEach(AgentDetailViewModel.Tab.allCases, id: \.self) { tab in
+                let selected = viewModel.selectedTab == tab
+                Button(action: { viewModel.selectedTab = tab }) {
+                    Text(tab.rawValue)
+                        .font(MonolithFont.sans(size: 13, weight: .medium))
+                        .foregroundColor(selected
+                                         ? MonolithTheme.Colors.textPrimary
+                                         : MonolithTheme.Colors.textTertiary)
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                        .background(selected ? Color.white.opacity(0.06) : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 11))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(.ultraThinMaterial)
+        .background(MonolithTheme.Glass.bg)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(MonolithTheme.Glass.border, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    // MARK: tab content
+    @ViewBuilder
+    private func content(for agent: Agent) -> some View {
+        switch viewModel.selectedTab {
+        case .overview:
+            VStack(spacing: MonolithTheme.Spacing.lg) {
+                instanceBlock(agent)
+                modelBlock(agent)
+                toolsList(agent)
+            }
+        case .tools:
+            toolsList(agent)
+        case .logs:
+            placeholderBlock("Logs coming soon.")
+        case .config:
+            placeholderBlock("Config coming soon.")
         }
     }
 
-    private static let dateFormatter: DateFormatter = {
-        let df = DateFormatter()
-        df.dateFormat = "MMM dd yyyy"
-        return df
-    }()
+    private func placeholderBlock(_ label: String) -> some View {
+        Text(label)
+            .font(MonolithFont.sans(size: 13))
+            .foregroundColor(MonolithTheme.Colors.textTertiary)
+            .frame(maxWidth: .infinity, minHeight: 120)
+    }
 
+    // MARK: KV blocks
+    private func instanceBlock(_ agent: Agent) -> some View {
+        kvSection("Instance", rows: [
+            ("host", agent.instanceSize ?? "—"),
+            ("vcpu · memory", "\(agent.vcpu ?? 0) · \(agent.memoryGB ?? 0) gb"),
+            ("region", agent.region ?? "—"),
+            ("uptime", agent.uptimeSeconds.map(Self.formatUptime) ?? "—")
+        ])
+    }
+
+    private func modelBlock(_ agent: Agent) -> some View {
+        kvSection("Model", rows: [
+            ("provider", agent.model ?? "—"),
+            ("tokens 24h", agent.tokens24h.map {
+                Self.numberFormatter.string(from: NSNumber(value: $0)) ?? "\($0)"
+            } ?? "—")
+        ])
+    }
+
+    private func kvSection(_ title: String, rows: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: MonolithTheme.Spacing.sm) {
+            Text(title.uppercased())
+                .font(MonolithFont.sans(size: 11, weight: .semibold))
+                .tracking(0.3)
+                .foregroundColor(MonolithTheme.Colors.textTertiary)
+            VStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { idx, pair in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(pair.0)
+                            .font(MonolithFont.sans(size: 13))
+                            .foregroundColor(MonolithTheme.Colors.textTertiary)
+                        Spacer()
+                        Text(pair.1)
+                            .font(MonolithFont.mono(size: 13))
+                            .foregroundColor(MonolithTheme.Colors.textPrimary)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    .padding(.horizontal, MonolithTheme.Spacing.md)
+                    .padding(.vertical, MonolithTheme.Spacing.sm)
+                    if idx < rows.count - 1 {
+                        Rectangle()
+                            .fill(MonolithTheme.Glass.border)
+                            .frame(height: 1)
+                            .padding(.horizontal, MonolithTheme.Spacing.md)
+                    }
+                }
+            }
+            .background(.ultraThinMaterial)
+            .background(MonolithTheme.Glass.bg)
+            .overlay(
+                RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
+                    .stroke(MonolithTheme.Glass.border, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+        }
+    }
+
+    // MARK: tools list
+    private func toolsList(_ agent: Agent) -> some View {
+        VStack(alignment: .leading, spacing: MonolithTheme.Spacing.sm) {
+            Text("TOOLS")
+                .font(MonolithFont.sans(size: 11, weight: .semibold))
+                .tracking(0.3)
+                .foregroundColor(MonolithTheme.Colors.textTertiary)
+            VStack(spacing: 0) {
+                ForEach(agent.connectedTools) { tool in
+                    toolRow(tool)
+                    if tool.id != agent.connectedTools.last?.id {
+                        Rectangle()
+                            .fill(MonolithTheme.Glass.border)
+                            .frame(height: 1)
+                            .padding(.leading, 64)
+                    }
+                }
+            }
+            .background(.ultraThinMaterial)
+            .background(MonolithTheme.Glass.bg)
+            .overlay(
+                RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
+                    .stroke(MonolithTheme.Glass.border, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+        }
+    }
+
+    private func toolRow(_ tool: AgentTool) -> some View {
+        HStack(spacing: MonolithTheme.Spacing.md) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.white.opacity(0.04))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(MonolithTheme.Glass.border, lineWidth: 1)
+                    )
+                Text(tool.abbreviation)
+                    .font(MonolithFont.mono(size: 13, weight: .semibold))
+                    .foregroundColor(MonolithTheme.Colors.textPrimary)
+            }
+            .frame(width: 36, height: 36)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tool.name)
+                    .font(MonolithFont.mono(size: 14, weight: .medium))
+                    .foregroundColor(MonolithTheme.Colors.textPrimary)
+                Text(tool.origin)
+                    .font(MonolithFont.sans(size: 12))
+                    .foregroundColor(MonolithTheme.Colors.textTertiary)
+            }
+            Spacer()
+            statusChip(tool.status)
+        }
+        .padding(.horizontal, MonolithTheme.Spacing.md)
+        .padding(.vertical, MonolithTheme.Spacing.sm)
+        .frame(minHeight: 56)
+    }
+
+    private func statusChip(_ status: AgentToolStatus) -> some View {
+        let (label, color): (String, Color) = {
+            switch status {
+            case .ok:    return ("ok", MonolithTheme.Colors.statusRunning)
+            case .warn:  return ("warn", MonolithTheme.Colors.statusWarning)
+            case .error: return ("err", MonolithTheme.Colors.statusError)
+            }
+        }()
+        return HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(label)
+                .font(MonolithFont.mono(size: 11, weight: .medium))
+                .foregroundColor(color)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.12))
+        .overlay(Capsule().stroke(color.opacity(0.3), lineWidth: 1))
+        .clipShape(Capsule())
+    }
+
+    // MARK: action buttons
+    private func actionButtons(_ agent: Agent) -> some View {
+        VStack(spacing: MonolithTheme.Spacing.sm) {
+            actionButton(label: "Open terminal", systemImage: "terminal", variant: .secondary)
+            actionButton(label: "Message \(agent.handle)", systemImage: "bubble.left.and.bubble.right", variant: .primary)
+            actionButton(label: "Stop agent", systemImage: "stop.circle", variant: .danger)
+        }
+    }
+
+    private enum ActionVariant { case primary, secondary, danger }
+
+    @ViewBuilder
+    private func actionButton(label: String, systemImage: String, variant: ActionVariant) -> some View {
+        Button(action: {}) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .semibold))
+                Text(label)
+                    .font(
+                        variant == .primary
+                            ? MonolithFont.sans(size: 14, weight: .semibold)
+                            : MonolithFont.sans(size: 14, weight: .medium)
+                    )
+            }
+            .foregroundColor(foreground(variant))
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(background(variant))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(border(variant), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func foreground(_ v: ActionVariant) -> Color {
+        switch v {
+        case .primary:   return MonolithTheme.Palette.void
+        case .secondary: return MonolithTheme.Colors.textPrimary
+        case .danger:    return MonolithTheme.Colors.statusError
+        }
+    }
+
+    @ViewBuilder
+    private func background(_ v: ActionVariant) -> some View {
+        switch v {
+        case .primary:
+            MonolithTheme.Colors.textPrimary
+        case .secondary:
+            Color.white.opacity(0.04)
+        case .danger:
+            MonolithTheme.Colors.statusError.opacity(0.1)
+        }
+    }
+
+    private func border(_ v: ActionVariant) -> Color {
+        switch v {
+        case .primary:   return Color.clear
+        case .secondary: return MonolithTheme.Glass.border
+        case .danger:    return MonolithTheme.Colors.statusError.opacity(0.3)
+        }
+    }
+
+    // MARK: helpers
     private static let numberFormatter: NumberFormatter = {
         let nf = NumberFormatter()
         nf.numberStyle = .decimal
@@ -212,7 +416,7 @@ struct AgentProfileSheet: View {
     }
 }
 
-#Preview("AgentProfileSheet — dispatch") {
+#Preview("AgentDetailView — dispatch") {
     AgentProfileSheet(
         agentID: MockAgents.dispatch.id,
         agentRepo: MockAgentRepository()

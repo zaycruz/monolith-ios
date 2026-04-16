@@ -2,8 +2,12 @@
 //  AgentDMView.swift
 //  Workspace
 //
-//  Screen 03 — 1:1 DM with an agent. Same layout language as ChannelView
-//  but header shows the agent's avatar + AGENT tag + status.
+//  Screen 03 — 1:1 DM with an agent. v0.3 layout:
+//  - GlassNavBar with back, avatar + title (agent handle in JBM) +
+//    subtitle (running · m8g.medium · 128h uptime)
+//  - DayMark + MessageRows (with multi-tool stacking supported by the
+//    existing WorkspaceMessage.toolCalls: [ToolCall])
+//  - Glass composer without @ mention button (it's 1:1, no @ needed)
 //
 
 import SwiftUI
@@ -42,12 +46,16 @@ final class AgentDMViewModel: ObservableObject {
 struct AgentDMView: View {
     @StateObject private var viewModel: AgentDMViewModel
     var onOpenAgent: ((AgentID) -> Void)?
+    var onBack: (() -> Void)?
+
+    @Environment(\.dismiss) private var dismiss
 
     init(
         dmID: DMID,
         conversationRepo: ConversationRepository,
         messageRepo: MessageRepository,
-        onOpenAgent: ((AgentID) -> Void)? = nil
+        onOpenAgent: ((AgentID) -> Void)? = nil,
+        onBack: (() -> Void)? = nil
     ) {
         self._viewModel = StateObject(
             wrappedValue: AgentDMViewModel(
@@ -57,80 +65,81 @@ struct AgentDMView: View {
             )
         )
         self.onOpenAgent = onOpenAgent
+        self.onBack = onBack
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            navBar
             messagesList
             ComposerView(
                 text: $viewModel.composerText,
-                placeholder: composerPlaceholder
+                placeholder: composerPlaceholder,
+                showMentionButton: false
             )
         }
         .background(MonolithTheme.Colors.bgBase.ignoresSafeArea())
+        .navigationBarBackButtonHidden(true)
         .task { await viewModel.load() }
     }
 
-    // MARK: header
-    private var header: some View {
-        HStack(spacing: MonolithTheme.Spacing.md) {
-            counterpartAvatar
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(viewModel.dm?.counterpart.displayName ?? "")
-                        .font(counterpartIsAgent
-                              ? MonolithFont.mono(size: 14, weight: .medium)
-                              : MonolithFont.sans(size: 15, weight: .bold))
-                        .foregroundColor(MonolithTheme.Colors.textPrimary)
-                    if counterpartIsAgent {
-                        Text("AGENT")
-                            .font(MonolithFont.mono(size: 9, weight: .medium))
-                            .tracking(0.6)
-                            .foregroundColor(MonolithTheme.Colors.textTertiary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: MonolithTheme.Radius.sm)
-                                    .stroke(MonolithTheme.Colors.borderStrong, lineWidth: 1)
-                            )
+    // MARK: nav
+    private var navBar: some View {
+        GlassNavBar(
+            leading: {
+                GlassNavBackButton(onTap: {
+                    if let onBack = onBack { onBack() }
+                    else { dismiss() }
+                })
+            },
+            title: { titleContent },
+            trailing: {
+                if case .agent(let a) = viewModel.dm?.counterpart.kind {
+                    Button(action: { onOpenAgent?(a.id) }) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(MonolithTheme.Colors.textSecondary)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
                     }
-                }
-                if counterpartIsAgent, case .agent(let a) = viewModel.dm?.counterpart.kind {
-                    Text(statusLabel(for: a.status))
-                        .font(MonolithFont.mono(size: 10))
-                        .foregroundColor(MonolithTheme.Colors.textTertiary)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Agent info")
                 }
             }
-            Spacer()
-            if case .agent(let a) = viewModel.dm?.counterpart.kind {
-                Button(action: { onOpenAgent?(a.id) }) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 18, weight: .medium))
+        )
+    }
+
+    @ViewBuilder
+    private var titleContent: some View {
+        HStack(spacing: MonolithTheme.Spacing.sm) {
+            counterpartAvatar
+            VStack(alignment: .leading, spacing: 1) {
+                Text(viewModel.dm?.counterpart.displayName ?? "")
+                    .font(counterpartIsAgent
+                          ? MonolithFont.mono(size: 17, weight: .semibold)
+                          : MonolithFont.sans(size: 17, weight: .semibold))
+                    .foregroundColor(MonolithTheme.Colors.textPrimary)
+                    .lineLimit(1)
+                if counterpartIsAgent,
+                   case .agent(let a) = viewModel.dm?.counterpart.kind {
+                    Text(statusSubtitle(for: a))
+                        .font(MonolithFont.mono(size: 11))
                         .foregroundColor(MonolithTheme.Colors.textTertiary)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                        .lineLimit(1)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Agent info")
             }
         }
-        .padding(.leading, MonolithTheme.Spacing.lg)
-        .padding(.trailing, MonolithTheme.Spacing.xs)
-        .frame(minHeight: 44)
-        .background(MonolithTheme.Colors.bgSurface)
-        .overlay(
-            Rectangle().fill(MonolithTheme.Colors.borderSoft).frame(height: 1),
-            alignment: .bottom
-        )
     }
 
     @ViewBuilder
     private var counterpartAvatar: some View {
         switch viewModel.dm?.counterpart.kind {
-        case .human(let h): HumanAvatar(human: h, size: .lg)
-        case .agent(let a): AgentAvatar(agent: a, size: .lg)
-        case .none:         Color.clear.frame(width: 32, height: 32)
+        case .human(let h):
+            AvatarWithPresence(human: h, size: .md)
+        case .agent(let a):
+            AvatarWithPresence(agent: a, size: .md)
+        case .none:
+            Color.clear.frame(width: 28, height: 28)
         }
     }
 
@@ -145,12 +154,21 @@ struct AgentDMView: View {
         return "Message…"
     }
 
-    private func statusLabel(for status: AgentStatus) -> String {
-        switch status {
-        case .running: return "running · m8g.medium"
-        case .idle:    return "idle"
-        case .error:   return "error"
+    private func statusSubtitle(for agent: Agent) -> String {
+        switch agent.status {
+        case .running:
+            let size = agent.instanceSize ?? "m8g.medium"
+            let uptime = agent.uptimeSeconds.map { formatUptime($0) } ?? "—"
+            return "running · \(size) · \(uptime)"
+        case .idle:  return "idle · standby"
+        case .error: return "error · check logs"
         }
+    }
+
+    private func formatUptime(_ seconds: Int) -> String {
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        return "\(h)h\(m > 0 ? " \(m)m" : "")"
     }
 
     // MARK: body list
@@ -162,7 +180,9 @@ struct AgentDMView: View {
                         .padding(.horizontal, MonolithTheme.Spacing.lg)
                 }
                 ForEach(viewModel.messages) { msg in
-                    MessageRow(message: msg)
+                    MessageRow(message: msg) { _ in
+                        // Threads not surfaced on DMs in v0.3.
+                    } onToggleReaction: { _ in }
                 }
             }
             .padding(.bottom, MonolithTheme.Spacing.md)

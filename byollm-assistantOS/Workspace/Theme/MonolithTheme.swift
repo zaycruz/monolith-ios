@@ -67,11 +67,15 @@ enum MonolithTheme {
         static let stateRunning = Color(hex: "#4ADE80")
         static let stateIdle    = Color(hex: "#6B7075")
         static let stateError   = Color(hex: "#F87171")
+        static let stateWarning = Color(hex: "#FBBF24")
 
-        // Human avatar palette
+        // Human avatar palette (base hues, paired with lighter shades for gradient fills)
         static let humanZayBlue      = Color(hex: "#3B5BDB")
+        static let humanZayBlueTop   = Color(hex: "#5C7CFA")
         static let humanSofiaViolet  = Color(hex: "#7048E8")
+        static let humanSofiaTop     = Color(hex: "#9775FA")
         static let humanJasonCyan    = Color(hex: "#0EA5E9")
+        static let humanJasonTop     = Color(hex: "#38BDF8")
     }
 
     // MARK: Semantic color aliases
@@ -93,7 +97,7 @@ enum MonolithTheme {
         static let textTertiary  = Palette.fog
         static let textMuted     = Palette.ash
 
-        // Accents
+        // Accents (reserved for the whisper footer gradient only)
         static let accent        = Palette.accentBlue
         static let accentAlt     = Palette.accentViolet
         static let whisper       = Palette.accentTeal
@@ -102,6 +106,30 @@ enum MonolithTheme {
         static let statusRunning = Palette.stateRunning
         static let statusIdle    = Palette.stateIdle
         static let statusError   = Palette.stateError
+        static let statusWarning = Palette.stateWarning
+    }
+
+    // MARK: Glass surfaces
+    /// Liquid-glass overlay tokens. In SwiftUI these are paired with
+    /// `.background(.ultraThinMaterial)` / `.regularMaterial` to create
+    /// the translucent, saturated blur effect specified in v0.3.
+    enum Glass {
+        /// Translucent fill laid over a material to keep the surface dark.
+        static let bg           = Color(white: 22.0 / 255.0).opacity(0.55)
+        /// Default glass border — subtle, trending almost invisible over void.
+        static let border       = Color.white.opacity(0.06)
+        /// Even softer border variant for search bars / secondary glass pills.
+        static let borderSubtle = Color.white.opacity(0.04)
+        /// Inner highlight applied as a top-edge inset stroke / box-shadow.
+        static let highlight    = Color.white.opacity(0.03)
+        /// Hover fill for rows.
+        static let hover        = Color.white.opacity(0.015)
+        /// Active row / selected state fill.
+        static let active       = Color.white.opacity(0.06)
+        /// Tool-call card inner fill (layered over material).
+        static let toolCardFill = Color(white: 8.0 / 255.0).opacity(0.7)
+        /// Inner field fill used inside the composer.
+        static let inputFill    = Color(white: 22.0 / 255.0).opacity(0.7)
     }
 
     // MARK: Spacing
@@ -117,76 +145,109 @@ enum MonolithTheme {
     }
 
     // MARK: Radius
+    /// v0.3 radius scale. Kept compatible with the v0.2 names via
+    /// explicit values — call sites use `.md` / `.lg` / `.xl` / `.pill`.
     enum Radius {
-        static let xs: CGFloat = 2
-        static let sm: CGFloat = 4
-        static let md: CGFloat = 6
-        static let lg: CGFloat = 8
-        static let xl: CGFloat = 12
-        static let pill: CGFloat = 999
+        static let xs:   CGFloat = 4
+        static let sm:   CGFloat = 8
+        static let md:   CGFloat = 14   // search bars, rows, composer inner
+        static let lg:   CGFloat = 16   // template cards
+        static let xl:   CGFloat = 20   // reactions, rounded pills
+        static let pill: CGFloat = 9999
     }
 
     // MARK: Avatar size variants
     enum AvatarSize {
-        case xs, sm, md, lg, xxl
+        /// 20pt — used in member stacks and mention chips.
+        case xs
+        /// 20pt — thread participant stacks (kept as a name alias).
+        case sm
+        /// 28pt — dense list rows.
+        case md
+        /// 36pt — channel / DM / message rows.
+        case lg
+        /// 44pt — larger accent row (inline reply avatars, agent DM header).
+        case xl
+        /// 56pt — agent detail hero.
+        case xxl
 
         var dimension: CGFloat {
             switch self {
-            case .xs:  return 16
+            case .xs:  return 20
             case .sm:  return 20
-            case .md:  return 24
-            case .lg:  return 32
+            case .md:  return 28
+            case .lg:  return 36
+            case .xl:  return 44
             case .xxl: return 56
             }
         }
 
-        /// Corner radius for agent (square-ish) avatars, scales with size.
-        var agentCornerRadius: CGFloat {
-            switch self {
-            case .xs:  return 2
-            case .sm:  return 3
-            case .md:  return 4
-            case .lg:  return 5
-            case .xxl: return 8
-            }
-        }
+        /// Corner radius for agent (square-ish) avatars — 22% of dimension.
+        var agentCornerRadius: CGFloat { dimension * 0.22 }
 
         /// Width of the agent "slit" — the brand mark on the left edge.
         var slitWidth: CGFloat {
             switch self {
-            case .xs:  return 1
-            case .sm:  return 1.5
-            case .md:  return 2
-            case .lg:  return 2.5
-            case .xxl: return 3
+            case .xs, .sm: return 1.5
+            case .md:      return 2
+            case .lg:      return 2
+            case .xl:      return 2.5
+            case .xxl:     return 3
             }
         }
 
         /// Font size for initials inside the avatar.
         var initialFontSize: CGFloat {
             switch self {
-            case .xs:  return 8
-            case .sm:  return 10
-            case .md:  return 11
-            case .lg:  return 13
-            case .xxl: return 20
+            case .xs, .sm: return 9
+            case .md:      return 11
+            case .lg:      return 13
+            case .xl:      return 15
+            case .xxl:     return 20
             }
         }
+
+        /// Diameter of the presence dot overlaid on the avatar.
+        var presenceDotSize: CGFloat {
+            switch self {
+            case .xs, .sm: return 7
+            case .md:      return 9
+            case .lg:      return 12
+            case .xl:      return 13
+            case .xxl:     return 16
+            }
+        }
+    }
+}
+
+// MARK: - Status color helper
+extension Color {
+    /// Apply the green running-dot glow used across presence indicators.
+    func glow(radius: CGFloat = 4, opacity: Double = 0.5) -> some View {
+        Circle()
+            .fill(self)
+            .shadow(color: self.opacity(opacity), radius: radius)
     }
 }
 
 // MARK: - Typography
 /// MonolithFont — helper that returns the right Font with graceful fallback
 /// when JetBrains Mono / IBM Plex Sans are not bundled.
+///
+/// v0.3 policy: IBM Plex Sans is the primary UI font. JetBrains Mono is
+/// reserved for agent identities, tool-call content, runtime data (VM
+/// specs, uptime, region, model name, token counts), inline `code`, and
+/// the lowercase `agent` tag next to agent authors.
 enum MonolithFont {
 
     // Mono weights used for agent names, tool calls, metadata, timestamps.
     static func mono(size: CGFloat, weight: Weight = .regular) -> Font {
         let name: String
         switch weight {
-        case .regular: name = "JetBrainsMono-Regular"
-        case .medium:  name = "JetBrainsMono-Medium"
-        case .bold:    name = "JetBrainsMono-Bold"
+        case .regular:  name = "JetBrainsMono-Regular"
+        case .medium:   name = "JetBrainsMono-Medium"
+        case .semibold: name = "JetBrainsMono-SemiBold"
+        case .bold:     name = "JetBrainsMono-Bold"
         }
         // Graceful fallback: system monospaced if custom font is not bundled.
         #if canImport(UIKit)
@@ -197,13 +258,14 @@ enum MonolithFont {
         return Font.system(size: size, weight: weight.systemWeight, design: .monospaced)
     }
 
-    // Sans for human names, body copy.
+    // Sans for human names, body copy, channels, section headers — almost everything.
     static func sans(size: CGFloat, weight: Weight = .regular) -> Font {
         let name: String
         switch weight {
-        case .regular: name = "IBMPlexSans-Regular"
-        case .medium:  name = "IBMPlexSans-Medium"
-        case .bold:    name = "IBMPlexSans-Bold"
+        case .regular:  name = "IBMPlexSans-Regular"
+        case .medium:   name = "IBMPlexSans-Medium"
+        case .semibold: name = "IBMPlexSans-SemiBold"
+        case .bold:     name = "IBMPlexSans-Bold"
         }
         #if canImport(UIKit)
         if UIFont(name: name, size: size) != nil {
@@ -214,13 +276,14 @@ enum MonolithFont {
     }
 
     enum Weight {
-        case regular, medium, bold
+        case regular, medium, semibold, bold
 
         var systemWeight: Font.Weight {
             switch self {
-            case .regular: return .regular
-            case .medium:  return .medium
-            case .bold:    return .bold
+            case .regular:  return .regular
+            case .medium:   return .medium
+            case .semibold: return .semibold
+            case .bold:     return .bold
             }
         }
     }

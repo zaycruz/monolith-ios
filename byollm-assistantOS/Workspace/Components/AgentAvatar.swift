@@ -2,8 +2,9 @@
 //  AgentAvatar.swift
 //  Workspace
 //
-//  Rounded square + left vertical "slit". The slit is the brand mark —
-//  it's what makes an agent visually distinct from a human at a glance.
+//  Rounded square (22% corner radius) + left vertical "slit". The slit is
+//  the brand mark — it's what makes an agent visually distinct from a
+//  human at a glance. v0.3 sizes: 20 / 28 / 36 / 44 / 56.
 //
 
 import SwiftUI
@@ -18,35 +19,34 @@ struct AgentAvatar: View {
     }
 
     var body: some View {
+        let dim = size.dimension
+        let radius = size.agentCornerRadius
+
         ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: size.agentCornerRadius)
+            RoundedRectangle(cornerRadius: radius)
                 .fill(MonolithTheme.Colors.bgPanel)
                 .overlay(
-                    RoundedRectangle(cornerRadius: size.agentCornerRadius)
+                    RoundedRectangle(cornerRadius: radius)
                         .stroke(MonolithTheme.Colors.borderStrong, lineWidth: 0.5)
                 )
 
-            // The slit — the brand mark.
+            // Slit positioned per v0.3 spec: left 22%, top/bottom 22%, opacity 0.7.
             Rectangle()
                 .fill(slitColor)
-                .frame(width: size.slitWidth)
-                .clipShape(
-                    RoundedRectangle(cornerRadius: size.agentCornerRadius)
-                )
+                .frame(width: size.slitWidth, height: dim * 0.56)
+                .opacity(0.7)
+                .offset(x: dim * 0.22)
 
-            // Initials.
+            // Initials — centered with a nudge so the slit doesn't visually
+            // pull them off-center.
             Text(agent.initials)
                 .font(MonolithFont.mono(size: size.initialFontSize, weight: .medium))
                 .foregroundColor(MonolithTheme.Colors.textPrimary)
-                .frame(
-                    maxWidth: .infinity,
-                    maxHeight: .infinity,
-                    alignment: .center
-                )
-                // Nudge so initials look centered despite the slit on the left.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .padding(.leading, size.slitWidth)
         }
-        .frame(width: size.dimension, height: size.dimension)
+        .frame(width: dim, height: dim)
+        .clipShape(RoundedRectangle(cornerRadius: radius))
         .accessibilityLabel("Agent \(agent.handle)")
     }
 
@@ -62,9 +62,9 @@ struct AgentAvatar: View {
 #Preview("Agent avatar sizes") {
     HStack(spacing: 12) {
         AgentAvatar(agent: MockAgents.dispatch, size: .xs)
-        AgentAvatar(agent: MockAgents.dispatch, size: .sm)
         AgentAvatar(agent: MockAgents.dispatch, size: .md)
         AgentAvatar(agent: MockAgents.dispatch, size: .lg)
+        AgentAvatar(agent: MockAgents.dispatch, size: .xl)
         AgentAvatar(agent: MockAgents.dispatch, size: .xxl)
     }
     .padding()

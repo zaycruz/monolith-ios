@@ -23,7 +23,7 @@
     --mist:      #C8CCD0;
     --snow:      #F2F3F4;
 
-    /* Raava gradient — whisper accent only */
+    /* Raava gradient — whisper accent */
     --blue:   #224AE8;
     --violet: #716EFF;
     --teal:   #00BDB7;
@@ -32,6 +32,12 @@
     --running: #4ADE80;
     --idle:    #6B7075;
     --error:   #F87171;
+    --warning: #FBBF24;
+
+    /* Glass */
+    --glass-bg: rgba(22, 24, 26, 0.55);
+    --glass-border: rgba(255,255,255, 0.06);
+    --glass-highlight: rgba(255,255,255, 0.03);
   }
 
   html, body {
@@ -41,30 +47,178 @@
     -webkit-font-smoothing: antialiased;
     min-height: 100vh;
   }
+
+  /* ── Canvas ── */
+  .canvas {
+    padding: 56px 48px 80px;
+    min-width: 1200px;
+  }
+  .canvas-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--graphite);
+    margin-bottom: 48px;
+  }
+  .brand-lockup {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .slit { width: 3px; height: 28px; background: var(--snow); }
+  .brand-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+    font-size: 15px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--snow);
+  }
+  .brand-desc {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ash);
+    padding-left: 14px;
+    margin-left: 14px;
+    border-left: 1px solid var(--graphite);
+  }
+  .canvas-meta { text-align: right; }
+  .canvas-title {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 300;
+    font-size: 32px;
+    letter-spacing: -0.02em;
+    color: var(--snow);
+    margin-bottom: 6px;
+  }
+  .canvas-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ash);
+  }
+
+  .mockup-row {
+    display: flex;
+    gap: 56px;
+    overflow-x: auto;
+    padding-bottom: 40px;
+  }
+  .mockup-row::-webkit-scrollbar { height: 6px; }
+  .mockup-row::-webkit-scrollbar-track { background: var(--obsidian); }
+  .mockup-row::-webkit-scrollbar-thumb { background: var(--graphite); border-radius: 3px; }
+
+  .mockup { flex-shrink: 0; width: 393px; }
+  .mockup-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .mockup-idx {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--ash);
+  }
+  .mockup-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: var(--snow);
+  }
+  .mockup-desc {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 12px;
+    color: var(--fog);
+    margin-bottom: 22px;
+    line-height: 1.5;
+    font-weight: 300;
+  }
+
+  /* ── iPhone 16 Pro frame ── */
+  .iphone {
+    width: 393px;
+    height: 852px;
+    background: #000;
+    border: 1px solid var(--graphite);
+    border-radius: 55px;
+    padding: 10px;
+    position: relative;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.04),
+      0 40px 100px -20px rgba(0,0,0,0.7),
+      0 20px 50px -10px rgba(0,0,0,0.5);
+  }
+  .iphone-screen {
+    width: 100%;
+    height: 100%;
+    background: var(--obsidian);
+    border-radius: 47px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .dynamic-island {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 126px;
+    height: 37px;
+    background: #000;
+    border-radius: 22px;
+    z-index: 10;
+  }
+  .home-indicator {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 139px;
+    height: 5px;
+    background: rgba(242,243,244,0.3);
+    border-radius: 3px;
+    z-index: 10;
+  }
+
+  /* NOTE: Full v0.3 mockup styles + seven screen markup are in chat transcript
+     (pasted 2026-04-16 by user). This file captures the palette/tokens + frame
+     structure. For per-screen markup, see chat transcript or the CHANGELOG.md
+     next to this file which documents every diff from v0.2. */
 </style>
 </head>
 <body>
-<!--
-  Design spec v0.3 — six screens:
-    01 workspace.home
-    02 channel.view
-    03 dm.agent
-    04 thread.panel
-    05 agent.profile
-    06 invite.agent
+<!-- Seven screens in v0.3:
+     01 workspace.home   — channels + DMs, glass tab bar, shortcut pills
+     02 channel.view     — glass nav, tool call cards, reaction pills, typing indicator
+     03 dm.agent         — 1:1 with agent, multi-tool-call stacking
+     04 agent.detail     — hero + tabs + instance/model/tools KV rows + actions
+     05 thread.view      — parent pinned + join events + multi-agent replies
+     06 agent.launch     — modal with template grid + VM sizes + name field
+     07 activity.feed    — chronological mentions + posts + replies + state changes
 
-  Full HTML with all six mockup blocks lives in chat history (pasted 2026-04-16).
-  This file is a palette/token reference only. See chat transcript for the full
-  canvas markup when extracting screen-specific component structures.
-
-  Tokens (map into MonolithTheme.swift):
-    Palette grayscale (10 stops): void, obsidian, stone, slate, graphite, iron,
-      ash, fog, mist, snow
-    Accent gradient: blue #224AE8 → violet #716EFF → teal #00BDB7 (whisper only)
-    State: running #4ADE80, idle #6B7075, error #F87171
-    Type: JetBrains Mono (agents/meta), IBM Plex Sans (humans/body),
-      IBM Plex Serif (reserved)
-    Avatars: humans = circles; agents = rounded squares with left vertical slit
+     Key v0.3 additions vs v0.2:
+     - Liquid glass surfaces (tab bar, nav, search, composer, tool calls, shortcuts)
+     - iPhone 16 Pro frame (393x852), corner radii 55/47, Dynamic Island 126x37
+     - 56pt minimum row height (was ~42pt)
+     - IBM Plex Sans as primary UI font; JetBrains Mono reserved for agents/runtime
+     - Gradient human avatars (linear-gradient 135deg)
+     - Presence status dots (12pt, bottom-trailing, 2.5pt obsidian border)
+     - Channel rows: 36pt rounded square icon with # inside
+     - Unread channel rows show last-message preview
+     - DM rows show preview + timestamp
+     - Tab bar: glass blur + active indicator bar above icon (3pt snow, 50% opacity)
+     - Tool calls: glass cards (rgba(8,9,10,0.7) + blur)
+     - Reaction pills: 20pt radius, larger padding
+     - Agent tag: lowercase 'agent', subtle glass pill (was uppercase AGENT)
+     - New: agent.detail, agent.launch, activity.feed screens
 -->
 </body>
 </html>

@@ -2,7 +2,14 @@
 //  ChannelView.swift
 //  Workspace
 //
-//  Screen 02 — channel conversation view. DayMark + MessageRows + Composer.
+//  Screen 02 — channel conversation view.
+//  v0.3 layout:
+//  - GlassNavBar with back, title (#name), subtitle (member + agent count)
+//  - Members stack bar (small avatars)
+//  - DayMark separator
+//  - MessageRows
+//  - Typing indicator
+//  - Glass composer
 //
 
 import SwiftUI
@@ -70,13 +77,17 @@ final class ChannelViewModel: ObservableObject {
 struct ChannelView: View {
     @StateObject private var viewModel: ChannelViewModel
     var onOpenThread: ((ThreadID) -> Void)?
+    var onBack: (() -> Void)?
+
+    @Environment(\.dismiss) private var dismiss
 
     init(
         channelID: ChannelID,
         conversationRepo: ConversationRepository,
         messageRepo: MessageRepository,
         realtimeRepo: RealtimeRepository,
-        onOpenThread: ((ThreadID) -> Void)? = nil
+        onOpenThread: ((ThreadID) -> Void)? = nil,
+        onBack: (() -> Void)? = nil
     ) {
         self._viewModel = StateObject(
             wrappedValue: ChannelViewModel(
@@ -87,11 +98,13 @@ struct ChannelView: View {
             )
         )
         self.onOpenThread = onOpenThread
+        self.onBack = onBack
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            navBar
+            memberStackBar
             messagesList
             ComposerView(
                 text: $viewModel.composerText,
@@ -100,32 +113,98 @@ struct ChannelView: View {
             )
         }
         .background(MonolithTheme.Colors.bgBase.ignoresSafeArea())
+        .navigationBarBackButtonHidden(true)
         .task { await viewModel.load() }
         .task { await viewModel.subscribe() }
     }
 
-    private var header: some View {
-        HStack(spacing: MonolithTheme.Spacing.sm) {
-            Text("#")
-                .font(MonolithFont.mono(size: 16, weight: .medium))
-                .foregroundColor(MonolithTheme.Colors.textTertiary)
-            Text(viewModel.channel?.name ?? "")
-                .font(MonolithFont.sans(size: 16, weight: .bold))
-                .foregroundColor(MonolithTheme.Colors.textPrimary)
-            Spacer()
-            if let count = viewModel.channel?.memberCount {
-                Text("\(count)")
-                    .font(MonolithFont.mono(size: 11))
-                    .foregroundColor(MonolithTheme.Colors.textTertiary)
+    private var navBar: some View {
+        GlassNavBar(
+            leading: {
+                GlassNavBackButton(onTap: {
+                    if let onBack = onBack { onBack() }
+                    else { dismiss() }
+                })
+            },
+            title: {
+                GlassNavTitle(
+                    title: "#\(viewModel.channel?.name ?? "")",
+                    subtitle: subtitle
+                )
+            },
+            trailing: {
+                HStack(spacing: 12) {
+                    navIconButton("magnifyingglass", label: "Search")
+                    navIconButton("info.circle", label: "Info")
+                }
             }
-        }
-        .padding(.horizontal, MonolithTheme.Spacing.lg)
-        .padding(.vertical, MonolithTheme.Spacing.md)
-        .background(MonolithTheme.Colors.bgSurface)
-        .overlay(
-            Rectangle().fill(MonolithTheme.Colors.borderSoft).frame(height: 1),
-            alignment: .bottom
         )
+    }
+
+    private func navIconButton(_ systemImage: String, label: String) -> some View {
+        Button(action: {}) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(MonolithTheme.Colors.textSecondary)
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private var subtitle: String {
+        let count = viewModel.channel?.memberCount ?? 0
+        let agents = estimatedAgentCount()
+        return "\(count) members · \(agents) agents"
+    }
+
+    /// Cheap heuristic for mock fixtures: count unique agent authors in
+    /// the loaded messages and fall back to "1 agent" if empty.
+    private func estimatedAgentCount() -> Int {
+        let set = Set(viewModel.messages.compactMap { msg -> String? in
+            if case .agent(let a) = msg.author.kind { return a.handle }
+            return nil
+        })
+        return max(1, set.count)
+    }
+
+    // MARK: members stack bar — small avatars with presence
+    private var memberStackBar: some View {
+        HStack(spacing: -8) {
+            ForEach(Array(stackMembers.prefix(6))) { member in
+                MemberAvatarWithPresence(member: member, size: .sm, showPresence: false)
+                    .overlay(
+                        Circle().stroke(MonolithTheme.Palette.void, lineWidth: 1.5)
+                            .opacity(member.isAgent ? 0 : 1)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: MonolithTheme.AvatarSize.sm.agentCornerRadius)
+                            .stroke(MonolithTheme.Palette.void, lineWidth: 1.5)
+                            .opacity(member.isAgent ? 1 : 0)
+                    )
+            }
+            Spacer()
+            Text("\(viewModel.channel?.memberCount ?? 0)")
+                .font(MonolithFont.sans(size: 12))
+                .foregroundColor(MonolithTheme.Colors.textTertiary)
+        }
+        .padding(.horizontal, MonolithTheme.Spacing.xl)
+        .padding(.vertical, MonolithTheme.Spacing.sm)
+    }
+
+    /// Stack members = authors of the first N messages deduplicated.
+    private var stackMembers: [Member] {
+        var seen = Set<String>()
+        var result: [Member] = []
+        for msg in viewModel.messages {
+            if !seen.contains(msg.author.id) {
+                result.append(msg.author)
+                seen.insert(msg.author.id)
+            }
+            if result.count >= 6 { break }
+        }
+        return result
     }
 
     private var messagesList: some View {
@@ -138,6 +217,7 @@ struct ChannelView: View {
                 ForEach(viewModel.messages) { msg in
                     MessageRow(message: msg, onOpenThread: onOpenThread)
                 }
+                WorkspaceTypingIndicator(name: "dispatch")
             }
             .padding(.bottom, MonolithTheme.Spacing.md)
         }

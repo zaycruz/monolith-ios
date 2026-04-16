@@ -2,9 +2,12 @@
 //  ActivityTabView.swift
 //  Workspace
 //
-//  Tab screen — mentions and notable events feed. Sorted newest-first.
-//  Rows with a channelID / threadID / dmID are tappable; others render
-//  as non-navigable (e.g. standalone agent status events).
+//  Screen 07 — mentions and notable events feed. v0.3 layout:
+//  - Large "Activity" title header
+//  - Glass "Filter activity..." search
+//  - "New" + "Earlier today" sections
+//  - Activity items: avatar + headline (bold name + action + #channel)
+//    + preview + time
 //
 
 import SwiftUI
@@ -56,16 +59,24 @@ struct ActivityTabView: View {
         VStack(spacing: 0) {
             header
             ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(viewModel.events) { event in
-                        eventRow(event)
-                        Rectangle()
-                            .fill(MonolithTheme.Colors.borderSoft)
-                            .frame(height: 1)
-                            .padding(.leading, MonolithTheme.Spacing.lg + 32 + MonolithTheme.Spacing.md)
+                VStack(alignment: .leading, spacing: 0) {
+                    searchBar
+                        .padding(.horizontal, MonolithTheme.Spacing.lg)
+                        .padding(.top, MonolithTheme.Spacing.md)
+                    if !newEvents.isEmpty {
+                        sectionHeader("NEW")
+                        ForEach(newEvents) { event in
+                            eventRow(event)
+                        }
                     }
+                    if !earlierEvents.isEmpty {
+                        sectionHeader("EARLIER TODAY")
+                        ForEach(earlierEvents) { event in
+                            eventRow(event)
+                        }
+                    }
+                    Spacer().frame(height: MonolithTheme.Spacing.xxxl)
                 }
-                .padding(.top, MonolithTheme.Spacing.sm)
             }
         }
         .background(MonolithTheme.Colors.bgBase.ignoresSafeArea())
@@ -76,23 +87,58 @@ struct ActivityTabView: View {
         }
     }
 
-    // MARK: header
+    // MARK: header — large "Activity" title
     private var header: some View {
-        HStack(spacing: MonolithTheme.Spacing.sm) {
-            Text("ACTIVITY")
-                .font(MonolithFont.mono(size: 12, weight: .bold))
-                .tracking(0.72)
+        HStack {
+            Text("Activity")
+                .font(MonolithFont.sans(size: 28, weight: .semibold))
                 .foregroundColor(MonolithTheme.Colors.textPrimary)
             Spacer()
         }
         .padding(.horizontal, MonolithTheme.Spacing.lg)
-        .padding(.vertical, MonolithTheme.Spacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(MonolithTheme.Colors.bgSurface)
+        .padding(.top, MonolithTheme.Spacing.lg)
+        .padding(.bottom, MonolithTheme.Spacing.sm)
+    }
+
+    // MARK: search
+    private var searchBar: some View {
+        HStack(spacing: MonolithTheme.Spacing.sm) {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(MonolithTheme.Colors.textMuted)
+            Text("Filter activity...")
+                .font(MonolithFont.sans(size: 15))
+                .foregroundColor(MonolithTheme.Colors.textMuted)
+            Spacer()
+        }
+        .padding(.horizontal, MonolithTheme.Spacing.lg)
+        .frame(minHeight: 44)
+        .background(.ultraThinMaterial)
+        .background(MonolithTheme.Glass.bg)
         .overlay(
-            Rectangle().fill(MonolithTheme.Colors.bgElevated).frame(height: 1),
-            alignment: .bottom
+            RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
+                .stroke(MonolithTheme.Glass.border, lineWidth: 1)
         )
+        .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+    }
+
+    // MARK: section splitting
+    /// "New" = last 2h (mock threshold) — first two items in our fixtures.
+    private var newEvents: [ActivityEvent] {
+        Array(viewModel.events.prefix(2))
+    }
+    private var earlierEvents: [ActivityEvent] {
+        Array(viewModel.events.dropFirst(2))
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(MonolithFont.sans(size: 13, weight: .semibold))
+            .tracking(0.3)
+            .foregroundColor(MonolithTheme.Colors.textTertiary)
+            .padding(.horizontal, MonolithTheme.Spacing.lg)
+            .padding(.top, MonolithTheme.Spacing.xl)
+            .padding(.bottom, MonolithTheme.Spacing.sm)
     }
 
     // MARK: row
@@ -112,42 +158,50 @@ struct ActivityTabView: View {
         HStack(alignment: .top, spacing: MonolithTheme.Spacing.md) {
             actorAvatar(event.actor)
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(event.actor.displayName)
-                        .font(event.actor.isAgent
-                              ? MonolithFont.mono(size: 14, weight: .medium)
-                              : MonolithFont.sans(size: 15, weight: .medium))
-                        .foregroundColor(MonolithTheme.Colors.textPrimary)
-                    Text(verb(for: event.kind))
-                        .font(MonolithFont.mono(size: 10, weight: .medium))
-                        .tracking(0.6)
-                        .foregroundColor(MonolithTheme.Colors.textTertiary)
-                    Spacer()
-                    Text(timeLabel(event.timestamp))
-                        .font(MonolithFont.mono(size: 10))
-                        .foregroundColor(MonolithTheme.Colors.textMuted)
-                }
+                headline(for: event)
                 Text(event.summary)
                     .font(MonolithFont.sans(size: 14))
                     .foregroundColor(MonolithTheme.Colors.textSecondary)
                     .multilineTextAlignment(.leading)
-                Text(event.target)
-                    .font(MonolithFont.mono(size: 11))
-                    .foregroundColor(MonolithTheme.Colors.textTertiary)
+                    .lineLimit(2)
             }
+            Spacer(minLength: 0)
+            Text(timeLabel(event.timestamp))
+                .font(MonolithFont.sans(size: 12))
+                .foregroundColor(MonolithTheme.Colors.textMuted)
+                .padding(.top, 2)
         }
         .padding(.horizontal, MonolithTheme.Spacing.lg)
         .padding(.vertical, MonolithTheme.Spacing.md)
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    /// Composed headline: bold actor name + action verb + target (channel/thread/dm).
+    @ViewBuilder
+    private func headline(for event: ActivityEvent) -> some View {
+        let isAgent = event.actor.isAgent
+        let nameFont = isAgent
+            ? MonolithFont.mono(size: 14, weight: .semibold)
+            : MonolithFont.sans(size: 15, weight: .semibold)
+
+        HStack(spacing: 0) {
+            Text(event.actor.displayName)
+                .font(nameFont)
+                .foregroundColor(MonolithTheme.Colors.textPrimary)
+            Text(" \(actionPhrase(for: event)) ")
+                .font(MonolithFont.sans(size: 14))
+                .foregroundColor(MonolithTheme.Colors.textTertiary)
+            Text(event.target)
+                .font(MonolithFont.sans(size: 14, weight: .medium))
+                .foregroundColor(MonolithTheme.Colors.textSecondary)
+        }
+        .lineLimit(2)
     }
 
     @ViewBuilder
     private func actorAvatar(_ actor: Member) -> some View {
-        switch actor.kind {
-        case .human(let h): HumanAvatar(human: h, size: .lg)
-        case .agent(let a): AgentAvatar(agent: a, size: .lg)
-        }
+        MemberAvatarWithPresence(member: actor, size: .lg, showPresence: false)
     }
 
     // MARK: navigation
@@ -166,20 +220,22 @@ struct ActivityTabView: View {
     }
 
     // MARK: labels
-    private func verb(for kind: ActivityKind) -> String {
-        switch kind {
-        case .mention:        return "MENTIONED YOU"
-        case .flag:           return "FLAGGED"
-        case .threadReply:    return "REPLIED"
-        case .agentCompleted: return "COMPLETED"
-        case .agentStatus:    return "STATUS"
+    private func actionPhrase(for event: ActivityEvent) -> String {
+        switch event.kind {
+        case .mention:        return "mentioned you in"
+        case .flag:           return "flagged in"
+        case .threadReply:    return "replied in"
+        case .agentCompleted: return "completed in"
+        case .agentStatus:    return "status ·"
         }
     }
 
     private func timeLabel(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        return f.string(from: date)
+        let df = DateFormatter()
+        df.dateFormat = "h:mm a"
+        df.amSymbol = "AM"
+        df.pmSymbol = "PM"
+        return df.string(from: date)
     }
 }
 

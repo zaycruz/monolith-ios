@@ -2,8 +2,10 @@
 //  MessageRow.swift
 //  Workspace
 //
-//  Core message row. Layout: 32pt avatar slot + flexible body.
-//  - Human vs agent styling differs: agents get mono names + AGENT tag.
+//  Core message row. Layout: 36pt avatar slot + flexible body.
+//  - Human vs agent styling differs: agents get mono names + lowercase
+//    glass `agent` pill. Avatar shape carries the distinction — no
+//    coloured left border in v0.3.
 //  - Tool calls render INLINE BEFORE the text body.
 //  - Collapsed rows (same author within 2 min) hide the avatar and header.
 //
@@ -14,15 +16,18 @@ struct MessageRow: View {
     let message: WorkspaceMessage
     var onOpenThread: ((ThreadID) -> Void)?
     var onToggleReaction: ((ReactionSymbol) -> Void)?
+    var onOpenMember: ((Member) -> Void)?
 
     init(
         message: WorkspaceMessage,
         onOpenThread: ((ThreadID) -> Void)? = nil,
-        onToggleReaction: ((ReactionSymbol) -> Void)? = nil
+        onToggleReaction: ((ReactionSymbol) -> Void)? = nil,
+        onOpenMember: ((Member) -> Void)? = nil
     ) {
         self.message = message
         self.onOpenThread = onOpenThread
         self.onToggleReaction = onToggleReaction
+        self.onOpenMember = onOpenMember
     }
 
     var body: some View {
@@ -44,28 +49,32 @@ struct MessageRow: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, MonolithTheme.Spacing.lg)
-        .padding(.vertical, message.collapsed ? 2 : MonolithTheme.Spacing.sm)
+        .padding(.horizontal, MonolithTheme.Spacing.xl)
+        .padding(.top, MonolithTheme.Spacing.sm)
+        .padding(.bottom, message.collapsed ? 2 : MonolithTheme.Spacing.md)
     }
 
-    // MARK: avatar slot — 32pt fixed
+    // MARK: avatar slot — 36pt fixed
     @ViewBuilder
     private var avatarSlot: some View {
         Group {
             if message.collapsed {
-                // Collapsed rows: reserve the same slot, render timestamp on hover/always-visible tiny.
+                // Collapsed rows: tiny timestamp in the reserved slot.
                 Text(Self.timeFormatter.string(from: message.timestamp))
-                    .font(MonolithFont.mono(size: 9))
+                    .font(MonolithFont.sans(size: 10))
                     .foregroundColor(MonolithTheme.Colors.textMuted)
-                    .frame(width: 32, alignment: .center)
+                    .frame(width: 36, alignment: .center)
             } else {
-                switch message.author.kind {
-                case .human(let h): HumanAvatar(human: h, size: .lg)
-                case .agent(let a): AgentAvatar(agent: a, size: .lg)
+                Button(action: { onOpenMember?(message.author) }) {
+                    switch message.author.kind {
+                    case .human(let h): HumanAvatar(human: h, size: .lg)
+                    case .agent(let a): AgentAvatar(agent: a, size: .lg)
+                    }
                 }
+                .buttonStyle(.plain)
             }
         }
-        .frame(width: 32, alignment: .top)
+        .frame(width: 36, alignment: .top)
     }
 
     // MARK: header (name + agent tag + timestamp)
@@ -78,28 +87,31 @@ struct MessageRow: View {
                 agentTag
             }
             Text(Self.timeFormatter.string(from: message.timestamp))
-                .font(MonolithFont.mono(size: 10))
+                .font(MonolithFont.sans(size: 12))
                 .foregroundColor(MonolithTheme.Colors.textMuted)
         }
     }
 
     private var nameFont: Font {
         message.author.isAgent
-            ? MonolithFont.mono(size: 13, weight: .medium)
-            : MonolithFont.sans(size: 14, weight: .medium)
+            ? MonolithFont.mono(size: 14, weight: .semibold)
+            : MonolithFont.sans(size: 15, weight: .semibold)
     }
 
+    /// Lowercase `agent` glass pill. Replaces the uppercase `AGENT` border
+    /// tag used in v0.2.
     private var agentTag: some View {
-        Text("AGENT")
-            .font(MonolithFont.mono(size: 9, weight: .medium))
-            .tracking(0.6)
+        Text("agent")
+            .font(MonolithFont.mono(size: 10, weight: .medium))
             .foregroundColor(MonolithTheme.Colors.textTertiary)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.white.opacity(0.04))
             .overlay(
-                RoundedRectangle(cornerRadius: MonolithTheme.Radius.sm)
-                    .stroke(MonolithTheme.Colors.borderStrong, lineWidth: 1)
+                Capsule()
+                    .stroke(MonolithTheme.Glass.border, lineWidth: 1)
             )
+            .clipShape(Capsule())
     }
 
     // MARK: body (tool calls inline BEFORE text)
@@ -117,10 +129,10 @@ struct MessageRow: View {
         }
     }
 
+    /// Body is IBM Plex Sans for both humans and agents — v0.3 reserves
+    /// JetBrains Mono for names, tool calls, and runtime data only.
     private var bodyFont: Font {
-        message.author.isAgent
-            ? MonolithFont.mono(size: 13)
-            : MonolithFont.sans(size: 14)
+        MonolithFont.sans(size: 15)
     }
 
     // MARK: reactions row

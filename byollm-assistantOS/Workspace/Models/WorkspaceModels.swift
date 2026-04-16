@@ -97,14 +97,28 @@ struct Human: Identifiable, Equatable {
     let id: HumanID
     let displayName: String
     let initials: String
-    /// Hex color string for the avatar fill.
+    /// Hex color string for the avatar fill (base/bottom-right of the gradient).
     let colorHex: String
+    /// Optional lighter tone for the top-left of the gradient fill.
+    /// When `nil`, a lighter variant is computed automatically from `colorHex`.
+    let gradientTopHex: String?
+    /// Whether the human is currently online (drives presence dot).
+    let online: Bool
 
-    init(id: HumanID, displayName: String, initials: String, colorHex: String) {
+    init(
+        id: HumanID,
+        displayName: String,
+        initials: String,
+        colorHex: String,
+        gradientTopHex: String? = nil,
+        online: Bool = true
+    ) {
         self.id = id
         self.displayName = displayName
         self.initials = initials
         self.colorHex = colorHex
+        self.gradientTopHex = gradientTopHex
+        self.online = online
     }
 }
 
@@ -113,6 +127,37 @@ enum AgentStatus: String, Codable, Equatable {
     case running
     case idle
     case error
+}
+
+// MARK: - Agent tool (connected MCP / service)
+enum AgentToolStatus: String, Codable, Equatable {
+    case ok
+    case warn
+    case error
+}
+
+/// A service the agent is wired to — shown on the agent-detail "Tools"
+/// tab with a 36pt icon, 2-letter abbreviation, and origin.
+struct AgentTool: Identifiable, Equatable {
+    let id: String            // e.g. "slack.mcp"
+    let name: String          // e.g. "slack.mcp"
+    let abbreviation: String  // e.g. "sl"
+    let origin: String        // e.g. "global · oauth"
+    let status: AgentToolStatus
+
+    init(
+        id: String,
+        name: String,
+        abbreviation: String,
+        origin: String,
+        status: AgentToolStatus = .ok
+    ) {
+        self.id = id
+        self.name = name
+        self.abbreviation = abbreviation
+        self.origin = origin
+        self.status = status
+    }
 }
 
 struct Agent: Identifiable, Equatable {
@@ -131,6 +176,8 @@ struct Agent: Identifiable, Equatable {
     let uptimeSeconds: Int?
     let model: String?          // e.g. "anthropic claude-opus-4-6"
     let tokens24h: Int?
+    /// Services this agent is currently wired to (MCPs, OAuth'd apps).
+    let connectedTools: [AgentTool]
 
     init(
         id: AgentID,
@@ -147,7 +194,8 @@ struct Agent: Identifiable, Equatable {
         region: String? = nil,
         uptimeSeconds: Int? = nil,
         model: String? = nil,
-        tokens24h: Int? = nil
+        tokens24h: Int? = nil,
+        connectedTools: [AgentTool] = []
     ) {
         self.id = id
         self.handle = handle
@@ -164,6 +212,7 @@ struct Agent: Identifiable, Equatable {
         self.uptimeSeconds = uptimeSeconds
         self.model = model
         self.tokens24h = tokens24h
+        self.connectedTools = connectedTools
     }
 }
 

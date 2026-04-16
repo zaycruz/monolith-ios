@@ -4,6 +4,8 @@
 //
 //  Bottom message composer. Includes a row for mention chips (if any),
 //  the text input, and a small toolbar (attach / @ / send).
+//  v0.3 treatment: whole bar wrapped in glass material, inner input
+//  field rounded 20pt with glass fill + subtle border.
 //
 
 import SwiftUI
@@ -12,6 +14,7 @@ struct ComposerView: View {
     @Binding var text: String
     var mentions: [Member]
     var placeholder: String
+    var showMentionButton: Bool
     var onSend: (() -> Void)?
     var onMention: (() -> Void)?
     var onAttach: (() -> Void)?
@@ -20,6 +23,7 @@ struct ComposerView: View {
         text: Binding<String>,
         mentions: [Member] = [],
         placeholder: String = "Message…",
+        showMentionButton: Bool = true,
         onSend: (() -> Void)? = nil,
         onMention: (() -> Void)? = nil,
         onAttach: (() -> Void)? = nil
@@ -27,6 +31,7 @@ struct ComposerView: View {
         self._text = text
         self.mentions = mentions
         self.placeholder = placeholder
+        self.showMentionButton = showMentionButton
         self.onSend = onSend
         self.onMention = onMention
         self.onAttach = onAttach
@@ -40,16 +45,19 @@ struct ComposerView: View {
             HStack(alignment: .bottom, spacing: MonolithTheme.Spacing.sm) {
                 attachButton
                 textField
-                mentionButton
+                if showMentionButton {
+                    mentionButton
+                }
                 sendButton
             }
             .padding(.horizontal, MonolithTheme.Spacing.md)
             .padding(.vertical, MonolithTheme.Spacing.sm)
         }
-        .background(MonolithTheme.Colors.bgSurface)
+        .background(.ultraThinMaterial)
+        .background(MonolithTheme.Palette.obsidian.opacity(0.6))
         .overlay(
             Rectangle()
-                .fill(MonolithTheme.Colors.borderSoft)
+                .fill(MonolithTheme.Glass.border)
                 .frame(height: 1),
             alignment: .top
         )
@@ -76,15 +84,17 @@ struct ComposerView: View {
             case .agent(let a): AgentAvatar(agent: a, size: .xs)
             }
             Text("@\(member.displayName)")
-                .font(MonolithFont.mono(size: 11, weight: .medium))
+                .font(member.isAgent
+                      ? MonolithFont.mono(size: 12, weight: .medium)
+                      : MonolithFont.sans(size: 12, weight: .medium))
                 .foregroundColor(MonolithTheme.Colors.textSecondary)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(MonolithTheme.Colors.bgElevated)
+        .background(Color.white.opacity(0.04))
         .overlay(
             RoundedRectangle(cornerRadius: MonolithTheme.Radius.pill)
-                .stroke(MonolithTheme.Colors.borderSoft, lineWidth: 1)
+                .stroke(MonolithTheme.Glass.border, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.pill))
     }
@@ -94,33 +104,33 @@ struct ComposerView: View {
         ZStack(alignment: .topLeading) {
             if text.isEmpty {
                 Text(placeholder)
-                    .font(MonolithFont.sans(size: 14))
+                    .font(MonolithFont.sans(size: 15))
                     .foregroundColor(MonolithTheme.Colors.textMuted)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 9)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
                     .allowsHitTesting(false)
             }
             TextEditor(text: $text)
-                .font(MonolithFont.sans(size: 14))
+                .font(MonolithFont.sans(size: 15))
                 .foregroundColor(MonolithTheme.Colors.textPrimary)
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 36, maxHeight: 120)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
         }
-        .background(MonolithTheme.Colors.bgElevated)
+        .background(MonolithTheme.Glass.inputFill)
         .overlay(
-            RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
-                .stroke(MonolithTheme.Colors.borderSoft, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 
     // MARK: toolbar buttons
     private var attachButton: some View {
         Button(action: { onAttach?() }) {
             Image(systemName: "paperclip")
-                .font(.system(size: 16, weight: .medium))
+                .font(.system(size: 17, weight: .medium))
                 .foregroundColor(MonolithTheme.Colors.textTertiary)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
@@ -132,7 +142,7 @@ struct ComposerView: View {
     private var mentionButton: some View {
         Button(action: { onMention?() }) {
             Text("@")
-                .font(MonolithFont.mono(size: 16, weight: .bold))
+                .font(MonolithFont.mono(size: 17, weight: .bold))
                 .foregroundColor(MonolithTheme.Colors.textTertiary)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
@@ -146,13 +156,13 @@ struct ComposerView: View {
             Image(systemName: "arrow.up")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundColor(sendEnabled
-                                 ? MonolithTheme.Colors.textPrimary
+                                 ? MonolithTheme.Palette.void
                                  : MonolithTheme.Colors.textMuted)
                 .frame(width: 44, height: 44)
                 .background(
-                    RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
+                    Circle()
                         .fill(sendEnabled
-                              ? MonolithTheme.Colors.accent
+                              ? MonolithTheme.Colors.textPrimary
                               : MonolithTheme.Colors.bgPanel)
                         .frame(width: 36, height: 36)
                 )

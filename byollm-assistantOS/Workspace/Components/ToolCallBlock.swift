@@ -6,6 +6,9 @@
 //  text body, not as separate messages. Layout: head (name + status), body
 //  (args), foot (duration + result summary).
 //
+//  v0.3 treatment: glass card. An .ultraThinMaterial base with an overlay
+//  dark translucent fill, 1pt glass border, and a 12pt corner radius.
+//
 
 import SwiftUI
 
@@ -22,12 +25,13 @@ struct ToolCallBlock: View {
             }
             foot
         }
-        .background(MonolithTheme.Colors.bgElevated)
+        .background(.ultraThinMaterial)
+        .background(MonolithTheme.Glass.toolCardFill)
         .overlay(
-            RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
-                .stroke(MonolithTheme.Colors.borderSoft, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(MonolithTheme.Glass.border, lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: head
@@ -36,6 +40,7 @@ struct ToolCallBlock: View {
             Circle()
                 .fill(statusColor)
                 .frame(width: 6, height: 6)
+                .shadow(color: statusColor.opacity(0.5), radius: 2)
             Text(call.name)
                 .font(MonolithFont.mono(size: 12, weight: .medium))
                 .foregroundColor(MonolithTheme.Colors.textPrimary)
@@ -46,12 +51,11 @@ struct ToolCallBlock: View {
         }
         .padding(.horizontal, MonolithTheme.Spacing.md)
         .padding(.vertical, MonolithTheme.Spacing.sm)
-        .background(MonolithTheme.Colors.bgPanel)
     }
 
     // MARK: body
     private var body_: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             ForEach(Array(call.args.enumerated()), id: \.offset) { _, pair in
                 HStack(alignment: .firstTextBaseline, spacing: MonolithTheme.Spacing.sm) {
                     Text(pair.0)
@@ -67,7 +71,7 @@ struct ToolCallBlock: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, MonolithTheme.Spacing.md)
-        .padding(.vertical, MonolithTheme.Spacing.sm)
+        .padding(.bottom, MonolithTheme.Spacing.sm)
     }
 
     // MARK: foot
@@ -89,21 +93,21 @@ struct ToolCallBlock: View {
         }
         .padding(.horizontal, MonolithTheme.Spacing.md)
         .padding(.vertical, MonolithTheme.Spacing.xs)
-        .background(MonolithTheme.Colors.bgSurface)
+        .background(Color.white.opacity(0.02))
     }
 
     private var statusColor: Color {
         switch call.status {
         case .ok:      return MonolithTheme.Colors.statusRunning
         case .err:     return MonolithTheme.Colors.statusError
-        case .running: return MonolithTheme.Colors.accent
+        case .running: return MonolithTheme.Colors.statusWarning
         }
     }
 
     private var statusLabel: String {
         switch call.status {
-        case .ok:      return "OK"
-        case .err:     return "ERR"
+        case .ok:      return "ok"
+        case .err:     return "err"
         case .running: return "…"
         }
     }

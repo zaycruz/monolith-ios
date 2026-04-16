@@ -3,6 +3,7 @@
 //  Workspace
 //
 //  Symbol-based reaction pills (✓ ! ? ✗ ↻ +). Not emoji, by design.
+//  v0.3 treatment: larger padding, 20pt radius, glass-ish fill and border.
 //
 
 import SwiftUI
@@ -18,22 +19,22 @@ struct ReactionChip: View {
 
     var body: some View {
         Button(action: { onTap?() }) {
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Text(reaction.symbol.rawValue)
-                    .font(MonolithFont.mono(size: 11, weight: .medium))
+                    .font(MonolithFont.mono(size: 13, weight: .medium))
                     .foregroundColor(foregroundColor)
                 Text("\(reaction.count)")
-                    .font(MonolithFont.mono(size: 11))
+                    .font(MonolithFont.sans(size: 13, weight: .medium))
                     .foregroundColor(foregroundColor)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
             .background(backgroundColor)
             .overlay(
-                RoundedRectangle(cornerRadius: MonolithTheme.Radius.pill)
+                RoundedRectangle(cornerRadius: MonolithTheme.Radius.xl)
                     .stroke(borderColor, lineWidth: 1)
             )
-            .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.pill))
+            .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.xl))
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
@@ -49,14 +50,14 @@ struct ReactionChip: View {
 
     private var backgroundColor: Color {
         reaction.viewerReacted
-            ? MonolithTheme.Colors.bgHover
-            : MonolithTheme.Colors.bgElevated
+            ? Color.white.opacity(0.08)
+            : Color.white.opacity(0.04)
     }
 
     private var borderColor: Color {
         reaction.viewerReacted
-            ? MonolithTheme.Colors.borderStrong
-            : MonolithTheme.Colors.borderSoft
+            ? Color.white.opacity(0.12)
+            : MonolithTheme.Glass.border
     }
 }
 
@@ -69,16 +70,16 @@ struct AddReactionChip: View {
     var body: some View {
         Button(action: { onTap?() }) {
             Text(ReactionSymbol.plus.rawValue)
-                .font(MonolithFont.mono(size: 12, weight: .medium))
+                .font(MonolithFont.mono(size: 13, weight: .medium))
                 .foregroundColor(MonolithTheme.Colors.textTertiary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(MonolithTheme.Colors.bgElevated)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.03))
                 .overlay(
-                    RoundedRectangle(cornerRadius: MonolithTheme.Radius.pill)
-                        .stroke(MonolithTheme.Colors.borderSoft, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: MonolithTheme.Radius.xl)
+                        .stroke(MonolithTheme.Glass.border, lineWidth: 1)
                 )
-                .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.pill))
+                .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.xl))
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
@@ -92,8 +93,6 @@ struct AddReactionChip: View {
         ReactionChip(reaction: Reaction(symbol: .ack, count: 3, viewerReacted: true))
         ReactionChip(reaction: Reaction(symbol: .flag, count: 1))
         ReactionChip(reaction: Reaction(symbol: .ask, count: 2))
-        ReactionChip(reaction: Reaction(symbol: .veto, count: 1))
-        ReactionChip(reaction: Reaction(symbol: .retry, count: 1))
         AddReactionChip()
     }
     .padding()

@@ -2,14 +2,22 @@
 //  InviteAgentSheet.swift
 //  Workspace
 //
-//  Screen 06 — invite a new agent: pick a template, instance size, and
-//  initial channel membership.
+//  Screen 06 — Launch a new agent (aka LaunchAgentSheet). Name retained
+//  to avoid touching the shell wiring.
+//
+//  v0.3 layout:
+//  - Glass nav with ✕ dismiss, title "Launch agent" (centered, mono)
+//  - Hero: large title "Spin up a new agent." + subtitle description
+//  - TEMPLATE 2×2 glass-card grid (selected = inner fill + border)
+//  - SIZE list with Graviton4 m8g naming + pricing
+//  - NAME input: glass field with `agent /` prefix + BlinkingCursor
+//  - Snow-white CTA "Launch agent"
 //
 
 import SwiftUI
 
 @MainActor
-final class InviteAgentViewModel: ObservableObject {
+final class LaunchAgentViewModel: ObservableObject {
     @Published var template: String = "researcher"
     @Published var instanceSize: String = "m8g.medium"
     @Published var selectedChannelIDs: Set<ChannelID>
@@ -48,8 +56,11 @@ final class InviteAgentViewModel: ObservableObject {
     }
 }
 
+/// Kept the `InviteAgentSheet` name so the existing shell can present it
+/// without touching WorkspaceTabShell. Behaves like LaunchAgentSheet.
 struct InviteAgentSheet: View {
-    @StateObject private var viewModel: InviteAgentViewModel
+    @StateObject private var viewModel: LaunchAgentViewModel
+    @FocusState private var nameFocused: Bool
     var onClose: (() -> Void)?
     var onInvited: ((Agent) -> Void)?
 
@@ -64,7 +75,7 @@ struct InviteAgentSheet: View {
         onInvited: ((Agent) -> Void)? = nil
     ) {
         self._viewModel = StateObject(
-            wrappedValue: InviteAgentViewModel(
+            wrappedValue: LaunchAgentViewModel(
                 channels: channels,
                 defaultChannelIDs: defaultChannelIDs,
                 agentRepo: agentRepo
@@ -76,218 +87,227 @@ struct InviteAgentSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            navBar
             ScrollView {
                 VStack(alignment: .leading, spacing: MonolithTheme.Spacing.xl) {
-                    section("TEMPLATE") { templatesGrid }
-                    section("SIZE")     { sizesList }
-                    section("CHANNELS") { channelsList }
-                    section("NAME (optional)") { nameField }
-                    submitButton
+                    hero
+                    templateSection
+                    sizeSection
+                    nameSection
+                    launchButton
+                    Spacer().frame(height: MonolithTheme.Spacing.xxl)
                 }
-                .padding(MonolithTheme.Spacing.lg)
+                .padding(.horizontal, MonolithTheme.Spacing.lg)
+                .padding(.top, MonolithTheme.Spacing.md)
             }
         }
         .background(MonolithTheme.Colors.bgBase.ignoresSafeArea())
     }
 
-    // MARK: header
-    private var header: some View {
-        HStack {
-            Text("INVITE AGENT")
-                .font(MonolithFont.mono(size: 11, weight: .medium))
-                .tracking(0.6)
-                .foregroundColor(MonolithTheme.Colors.textTertiary)
-            Spacer()
-            Button(action: { onClose?() }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(MonolithTheme.Colors.textTertiary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+    // MARK: nav
+    private var navBar: some View {
+        GlassNavBar(
+            leading: { GlassNavCloseButton(onTap: { onClose?() }) },
+            title: {
+                GlassNavTitle(title: "Launch agent", titleIsMono: true)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-        }
-        .padding(.leading, MonolithTheme.Spacing.lg)
-        .padding(.trailing, MonolithTheme.Spacing.xs)
-        .frame(minHeight: 44)
-        .background(MonolithTheme.Colors.bgSurface)
-        .overlay(
-            Rectangle().fill(MonolithTheme.Colors.borderSoft).frame(height: 1),
-            alignment: .bottom
         )
     }
 
-    // MARK: section wrapper
-    private func section<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: MonolithTheme.Spacing.sm) {
-            Text(title)
-                .font(MonolithFont.mono(size: 10, weight: .medium))
-                .tracking(0.6)
+    // MARK: hero
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Spin up a new agent.")
+                .font(MonolithFont.sans(size: 26, weight: .semibold))
+                .foregroundColor(MonolithTheme.Colors.textPrimary)
+            Text("Choose a template, pick a size, give it a name. Your agent joins the workspace in seconds.")
+                .font(MonolithFont.sans(size: 14))
                 .foregroundColor(MonolithTheme.Colors.textTertiary)
-            content()
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: templates
-    private let templates = ["researcher", "engineer", "operator", "blank"]
-    private var templatesGrid: some View {
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 2),
-            spacing: 8
-        ) {
-            ForEach(templates, id: \.self) { t in
-                let selected = (viewModel.template == t)
-                Button(action: { viewModel.template = t }) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(t)
-                            .font(MonolithFont.mono(size: 13, weight: .medium))
-                            .foregroundColor(MonolithTheme.Colors.textPrimary)
-                        Text(templateSubtitle(t))
-                            .font(MonolithFont.mono(size: 10))
-                            .foregroundColor(MonolithTheme.Colors.textTertiary)
-                    }
-                    .padding(MonolithTheme.Spacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(selected
-                                ? MonolithTheme.Colors.bgHover
-                                : MonolithTheme.Colors.bgElevated)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
-                            .stroke(selected
-                                    ? MonolithTheme.Colors.accent
-                                    : MonolithTheme.Colors.borderSoft,
-                                    lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+    // MARK: template grid
+    private struct TemplateOption: Identifiable {
+        let id: String
+        let title: String
+        let subtitle: String
+        let systemImage: String
+    }
+
+    private let templates: [TemplateOption] = [
+        .init(id: "researcher", title: "researcher", subtitle: "reads, summarizes, investigates", systemImage: "magnifyingglass"),
+        .init(id: "engineer",   title: "engineer",   subtitle: "builds, ships, reviews code",     systemImage: "hammer"),
+        .init(id: "operator",   title: "operator",   subtitle: "triages, coordinates, reports",   systemImage: "flag"),
+        .init(id: "blank",      title: "blank",      subtitle: "starts empty; you scope it",      systemImage: "square.dashed")
+    ]
+
+    private var templateSection: some View {
+        VStack(alignment: .leading, spacing: MonolithTheme.Spacing.md) {
+            sectionTitle("TEMPLATE")
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2),
+                spacing: 10
+            ) {
+                ForEach(templates) { t in
+                    templateCard(t)
                 }
-                .buttonStyle(.plain)
             }
         }
     }
 
-    private func templateSubtitle(_ t: String) -> String {
-        switch t {
-        case "researcher": return "reads, summarizes, investigates"
-        case "engineer":   return "builds, ships, reviews code"
-        case "operator":   return "triages, coordinates, reports"
-        default:           return "starts empty; you scope it"
+    private func templateCard(_ t: TemplateOption) -> some View {
+        let selected = viewModel.template == t.id
+        return Button(action: { viewModel.template = t.id }) {
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: t.systemImage)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(selected
+                                     ? MonolithTheme.Colors.textPrimary
+                                     : MonolithTheme.Colors.textSecondary)
+                    .frame(width: 36, height: 36)
+                    .background(Color.white.opacity(selected ? 0.06 : 0.03))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t.title)
+                        .font(MonolithFont.mono(size: 14, weight: .semibold))
+                        .foregroundColor(MonolithTheme.Colors.textPrimary)
+                    Text(t.subtitle)
+                        .font(MonolithFont.sans(size: 12))
+                        .foregroundColor(MonolithTheme.Colors.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(MonolithTheme.Spacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial)
+            .background(selected
+                        ? Color.white.opacity(0.06)
+                        : MonolithTheme.Glass.bg)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(selected
+                            ? Color.white.opacity(0.2)
+                            : MonolithTheme.Glass.border,
+                            lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
+        .buttonStyle(.plain)
     }
 
-    // MARK: sizes
+    // MARK: size list
     private struct SizeOption: Identifiable {
         let id: String
         let label: String
         let spec: String
         let price: String
     }
+
     private let sizes: [SizeOption] = [
-        .init(id: "m8g.small",  label: "m8g.small",  spec: "1 vcpu · 2 gb", price: "$18/mo"),
-        .init(id: "m8g.medium", label: "m8g.medium", spec: "2 vcpu · 4 gb", price: "$36/mo"),
-        .init(id: "m8g.large",  label: "m8g.large",  spec: "4 vcpu · 8 gb", price: "$72/mo"),
+        .init(id: "m8g.small",  label: "m8g.small",  spec: "Graviton4 · 1 vcpu · 2 gb",  price: "$18/mo"),
+        .init(id: "m8g.medium", label: "m8g.medium", spec: "Graviton4 · 2 vcpu · 4 gb",  price: "$36/mo"),
+        .init(id: "m8g.large",  label: "m8g.large",  spec: "Graviton4 · 4 vcpu · 8 gb",  price: "$72/mo"),
     ]
 
-    private var sizesList: some View {
-        VStack(spacing: 0) {
-            ForEach(sizes) { s in
-                let selected = (viewModel.instanceSize == s.id)
-                Button(action: { viewModel.instanceSize = s.id }) {
-                    HStack(spacing: MonolithTheme.Spacing.md) {
-                        Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                            .font(.system(size: 16))
-                            .foregroundColor(selected
-                                             ? MonolithTheme.Colors.accent
-                                             : MonolithTheme.Colors.textMuted)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(s.label)
-                                .font(MonolithFont.mono(size: 13, weight: .medium))
-                                .foregroundColor(MonolithTheme.Colors.textPrimary)
-                            Text(s.spec)
-                                .font(MonolithFont.mono(size: 10))
-                                .foregroundColor(MonolithTheme.Colors.textTertiary)
-                        }
-                        Spacer()
-                        Text(s.price)
-                            .font(MonolithFont.mono(size: 12))
-                            .foregroundColor(MonolithTheme.Colors.textSecondary)
+    private var sizeSection: some View {
+        VStack(alignment: .leading, spacing: MonolithTheme.Spacing.sm) {
+            sectionTitle("SIZE")
+            VStack(spacing: 0) {
+                ForEach(sizes) { s in
+                    sizeRow(s)
+                    if s.id != sizes.last?.id {
+                        Rectangle()
+                            .fill(MonolithTheme.Glass.border)
+                            .frame(height: 1)
+                            .padding(.leading, MonolithTheme.Spacing.md)
                     }
-                    .padding(MonolithTheme.Spacing.md)
-                    .background(selected
-                                ? MonolithTheme.Colors.bgHover
-                                : MonolithTheme.Colors.bgElevated)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
-                            .stroke(selected
-                                    ? MonolithTheme.Colors.accent
-                                    : MonolithTheme.Colors.borderSoft,
-                                    lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
                 }
-                .buttonStyle(.plain)
-                .padding(.bottom, 8)
             }
-        }
-    }
-
-    // MARK: channels
-    private var channelsList: some View {
-        VStack(spacing: 0) {
-            ForEach(viewModel.channels) { c in
-                let selected = viewModel.selectedChannelIDs.contains(c.id)
-                Button(action: {
-                    if selected { viewModel.selectedChannelIDs.remove(c.id) }
-                    else { viewModel.selectedChannelIDs.insert(c.id) }
-                }) {
-                    HStack(spacing: MonolithTheme.Spacing.md) {
-                        Image(systemName: selected ? "checkmark.square.fill" : "square")
-                            .font(.system(size: 16))
-                            .foregroundColor(selected
-                                             ? MonolithTheme.Colors.accent
-                                             : MonolithTheme.Colors.textMuted)
-                        Text("#\(c.name)")
-                            .font(MonolithFont.sans(size: 14))
-                            .foregroundColor(MonolithTheme.Colors.textSecondary)
-                        Spacer()
-                    }
-                    .padding(.horizontal, MonolithTheme.Spacing.md)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .background(MonolithTheme.Colors.bgElevated)
-        .overlay(
-            RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
-                .stroke(MonolithTheme.Colors.borderSoft, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
-    }
-
-    // MARK: name
-    private var nameField: some View {
-        TextField("leave blank to auto-generate", text: $viewModel.name)
-            .font(MonolithFont.mono(size: 13))
-            .foregroundColor(MonolithTheme.Colors.textPrimary)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .padding(MonolithTheme.Spacing.md)
-            .background(MonolithTheme.Colors.bgElevated)
+            .background(.ultraThinMaterial)
+            .background(MonolithTheme.Glass.bg)
             .overlay(
                 RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
-                    .stroke(MonolithTheme.Colors.borderSoft, lineWidth: 1)
+                    .stroke(MonolithTheme.Glass.border, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+        }
     }
 
-    // MARK: submit
-    private var submitButton: some View {
+    private func sizeRow(_ s: SizeOption) -> some View {
+        let selected = viewModel.instanceSize == s.id
+        return Button(action: { viewModel.instanceSize = s.id }) {
+            HStack(spacing: MonolithTheme.Spacing.md) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 18))
+                    .foregroundColor(selected
+                                     ? MonolithTheme.Colors.textPrimary
+                                     : MonolithTheme.Colors.textMuted)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(s.label)
+                        .font(MonolithFont.mono(size: 14, weight: .semibold))
+                        .foregroundColor(MonolithTheme.Colors.textPrimary)
+                    Text(s.spec)
+                        .font(MonolithFont.sans(size: 12))
+                        .foregroundColor(MonolithTheme.Colors.textTertiary)
+                }
+                Spacer()
+                Text(s.price)
+                    .font(MonolithFont.mono(size: 13))
+                    .foregroundColor(MonolithTheme.Colors.textSecondary)
+            }
+            .padding(MonolithTheme.Spacing.md)
+            .frame(minHeight: 56)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: name field — glass input with `agent /` prefix + cursor
+    private var nameSection: some View {
+        VStack(alignment: .leading, spacing: MonolithTheme.Spacing.sm) {
+            sectionTitle("NAME")
+            HStack(spacing: 4) {
+                Text("agent /")
+                    .font(MonolithFont.mono(size: 15, weight: .medium))
+                    .foregroundColor(MonolithTheme.Colors.textTertiary)
+                ZStack(alignment: .leading) {
+                    if viewModel.name.isEmpty {
+                        HStack(spacing: 0) {
+                            BlinkingCursor()
+                                .padding(.leading, 1)
+                        }
+                    }
+                    TextField("", text: $viewModel.name)
+                        .focused($nameFocused)
+                        .font(MonolithFont.mono(size: 15))
+                        .foregroundColor(MonolithTheme.Colors.textPrimary)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .tint(MonolithTheme.Colors.textPrimary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, MonolithTheme.Spacing.md)
+            .frame(minHeight: 52)
+            .background(.ultraThinMaterial)
+            .background(MonolithTheme.Glass.inputFill)
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(MonolithTheme.Glass.border, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .onTapGesture { nameFocused = true }
+
+            Text("Leave blank to auto-generate a handle from the template.")
+                .font(MonolithFont.sans(size: 12))
+                .foregroundColor(MonolithTheme.Colors.textMuted)
+        }
+    }
+
+    // MARK: launch CTA
+    private var launchButton: some View {
         Button(action: {
             Task {
                 if let agent = await viewModel.submit() {
@@ -297,21 +317,29 @@ struct InviteAgentSheet: View {
         }) {
             HStack {
                 Spacer()
-                Text(viewModel.submitting ? "inviting…" : "invite agent")
-                    .font(MonolithFont.mono(size: 14, weight: .medium))
-                    .foregroundColor(MonolithTheme.Colors.textPrimary)
+                Text(viewModel.submitting ? "Launching…" : "Launch agent")
+                    .font(MonolithFont.sans(size: 15, weight: .semibold))
+                    .foregroundColor(MonolithTheme.Palette.void)
                 Spacer()
             }
-            .frame(minHeight: 44)
-            .background(MonolithTheme.Colors.accent)
-            .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+            .frame(minHeight: 52)
+            .background(MonolithTheme.Palette.snow)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(viewModel.submitting)
     }
+
+    // MARK: helpers
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(MonolithFont.sans(size: 11, weight: .semibold))
+            .tracking(0.3)
+            .foregroundColor(MonolithTheme.Colors.textTertiary)
+    }
 }
 
-#Preview("InviteAgentSheet") {
+#Preview("LaunchAgentSheet") {
     InviteAgentSheet(agentRepo: MockAgentRepository())
 }
