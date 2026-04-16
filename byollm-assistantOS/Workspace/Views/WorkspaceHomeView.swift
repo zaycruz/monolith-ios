@@ -85,12 +85,20 @@ struct WorkspaceHomeView: View {
                 Rectangle()
                     .fill(MonolithTheme.Colors.textPrimary)
                     .frame(width: 3, height: 18)
-                Text(viewModel.workspace?.name ?? "…")
-                    .font(MonolithFont.mono(size: 16, weight: .bold))
-                    .foregroundColor(MonolithTheme.Colors.textPrimary)
-                Text("\u{25BE}") // ▾
-                    .font(MonolithFont.mono(size: 12, weight: .regular))
-                    .foregroundColor(MonolithTheme.Colors.textMuted)
+                Button(action: {}) {
+                    HStack(spacing: MonolithTheme.Spacing.sm) {
+                        Text(viewModel.workspace?.name ?? "…")
+                            .font(MonolithFont.mono(size: 16, weight: .bold))
+                            .foregroundColor(MonolithTheme.Colors.textPrimary)
+                        Text("\u{25BE}") // ▾
+                            .font(MonolithFont.mono(size: 12, weight: .regular))
+                            .foregroundColor(MonolithTheme.Colors.textMuted)
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Switch workspace")
                 Spacer()
             }
             // Presence line: green dot + "2 teammates · 8 agents running"
@@ -116,16 +124,21 @@ struct WorkspaceHomeView: View {
 
     // MARK: search bar — "jump to..."
     private var searchBar: some View {
-        HStack(spacing: MonolithTheme.Spacing.sm) {
-            Text("jump to...")
-                .font(MonolithFont.mono(size: 12))
-                .foregroundColor(MonolithTheme.Colors.textMuted)
-            Spacer()
+        Button(action: {}) {
+            HStack(spacing: MonolithTheme.Spacing.sm) {
+                Text("jump to...")
+                    .font(MonolithFont.mono(size: 12))
+                    .foregroundColor(MonolithTheme.Colors.textMuted)
+                Spacer()
+            }
+            .padding(.horizontal, MonolithTheme.Spacing.md)
+            .frame(minHeight: 44)
+            .background(MonolithTheme.Colors.bgElevated)
+            .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, MonolithTheme.Spacing.md)
-        .padding(.vertical, MonolithTheme.Spacing.sm)
-        .background(MonolithTheme.Colors.bgElevated)
-        .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+        .buttonStyle(.plain)
+        .accessibilityLabel("Search, jump to channel or DM")
         .padding(.horizontal, MonolithTheme.Spacing.lg)
         .padding(.top, MonolithTheme.Spacing.md)
     }
@@ -141,17 +154,22 @@ struct WorkspaceHomeView: View {
     }
 
     private func shortcutRow(label: String, count: String) -> some View {
-        HStack(spacing: MonolithTheme.Spacing.md) {
-            Text(label)
-                .font(MonolithFont.sans(size: 15))
-                .foregroundColor(MonolithTheme.Colors.textSecondary)
-            Spacer()
-            Text(count)
-                .font(MonolithFont.mono(size: 10, weight: .medium))
-                .foregroundColor(MonolithTheme.Colors.textTertiary)
+        Button(action: {}) {
+            HStack(spacing: MonolithTheme.Spacing.md) {
+                Text(label)
+                    .font(MonolithFont.sans(size: 15))
+                    .foregroundColor(MonolithTheme.Colors.textSecondary)
+                Spacer()
+                Text(count)
+                    .font(MonolithFont.mono(size: 10, weight: .medium))
+                    .foregroundColor(MonolithTheme.Colors.textTertiary)
+            }
+            .padding(.horizontal, MonolithTheme.Spacing.lg)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, MonolithTheme.Spacing.lg)
-        .padding(.vertical, MonolithTheme.Spacing.sm)
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(label), \(count)")
     }
 
     // MARK: section header
@@ -171,11 +189,15 @@ struct WorkspaceHomeView: View {
                     Text(action)
                         .font(MonolithFont.mono(size: 14, weight: .medium))
                         .foregroundColor(MonolithTheme.Colors.textTertiary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Add \(title.lowercased())")
             }
         }
-        .padding(.horizontal, MonolithTheme.Spacing.lg)
+        .padding(.leading, MonolithTheme.Spacing.lg)
+        .padding(.trailing, MonolithTheme.Spacing.xs)
         .padding(.top, MonolithTheme.Spacing.lg)
         .padding(.bottom, MonolithTheme.Spacing.sm)
     }
@@ -205,7 +227,7 @@ struct WorkspaceHomeView: View {
                 }
             }
             .padding(.horizontal, MonolithTheme.Spacing.lg)
-            .padding(.vertical, MonolithTheme.Spacing.sm)
+            .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -259,7 +281,7 @@ struct WorkspaceHomeView: View {
                 if dm.unread > 0 { unreadBadge(dm.unread) }
             }
             .padding(.horizontal, MonolithTheme.Spacing.lg)
-            .padding(.vertical, MonolithTheme.Spacing.sm)
+            .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

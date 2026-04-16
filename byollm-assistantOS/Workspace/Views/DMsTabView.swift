@@ -140,6 +140,7 @@ struct DMsTabView: View {
         }
         .padding(.horizontal, MonolithTheme.Spacing.lg)
         .padding(.vertical, MonolithTheme.Spacing.md)
+        .frame(minHeight: 44)
         .contentShape(Rectangle())
     }
 

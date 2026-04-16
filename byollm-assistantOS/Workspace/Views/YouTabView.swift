@@ -125,12 +125,12 @@ struct YouTabView: View {
                 .font(MonolithFont.mono(size: 12, weight: .bold))
                 .tracking(0.72)
                 .foregroundColor(MonolithTheme.Colors.textPrimary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, MonolithTheme.Spacing.md)
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .background(
                     RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
                         .stroke(MonolithTheme.Colors.borderStrong, lineWidth: 1)
                 )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(signingOut)

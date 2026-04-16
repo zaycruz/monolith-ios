@@ -138,7 +138,7 @@ struct ActivityTabView: View {
         }
         .padding(.horizontal, MonolithTheme.Spacing.lg)
         .padding(.vertical, MonolithTheme.Spacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .contentShape(Rectangle())
     }
 

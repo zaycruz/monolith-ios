@@ -108,12 +108,16 @@ struct AgentDMView: View {
                     Image(systemName: "info.circle")
                         .font(.system(size: 18, weight: .medium))
                         .foregroundColor(MonolithTheme.Colors.textTertiary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Agent info")
             }
         }
-        .padding(.horizontal, MonolithTheme.Spacing.lg)
-        .padding(.vertical, MonolithTheme.Spacing.md)
+        .padding(.leading, MonolithTheme.Spacing.lg)
+        .padding(.trailing, MonolithTheme.Spacing.xs)
+        .frame(minHeight: 44)
         .background(MonolithTheme.Colors.bgSurface)
         .overlay(
             Rectangle().fill(MonolithTheme.Colors.borderSoft).frame(height: 1),

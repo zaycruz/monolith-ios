@@ -103,11 +103,15 @@ struct InviteAgentSheet: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(MonolithTheme.Colors.textTertiary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Close")
         }
-        .padding(.horizontal, MonolithTheme.Spacing.lg)
-        .padding(.vertical, MonolithTheme.Spacing.md)
+        .padding(.leading, MonolithTheme.Spacing.lg)
+        .padding(.trailing, MonolithTheme.Spacing.xs)
+        .frame(minHeight: 44)
         .background(MonolithTheme.Colors.bgSurface)
         .overlay(
             Rectangle().fill(MonolithTheme.Colors.borderSoft).frame(height: 1),
@@ -251,8 +255,8 @@ struct InviteAgentSheet: View {
                             .foregroundColor(MonolithTheme.Colors.textSecondary)
                         Spacer()
                     }
-                    .padding(.vertical, 8)
                     .padding(.horizontal, MonolithTheme.Spacing.md)
+                    .frame(minHeight: 44)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -298,9 +302,10 @@ struct InviteAgentSheet: View {
                     .foregroundColor(MonolithTheme.Colors.textPrimary)
                 Spacer()
             }
-            .padding(.vertical, MonolithTheme.Spacing.md)
+            .frame(minHeight: 44)
             .background(MonolithTheme.Colors.accent)
             .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(viewModel.submitting)

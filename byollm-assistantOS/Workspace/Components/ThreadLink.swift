@@ -26,13 +26,14 @@ struct ThreadLink: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, MonolithTheme.Spacing.sm)
-            .padding(.vertical, 4)
+            .frame(minHeight: 44)
             .background(MonolithTheme.Colors.bgElevated)
             .overlay(
                 RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
                     .stroke(MonolithTheme.Colors.borderSoft, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(summary.replyCount) thread replies")

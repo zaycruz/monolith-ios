@@ -122,7 +122,8 @@ struct ComposerView: View {
             Image(systemName: "paperclip")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundColor(MonolithTheme.Colors.textTertiary)
-                .frame(width: 36, height: 36)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Attach")
@@ -133,7 +134,8 @@ struct ComposerView: View {
             Text("@")
                 .font(MonolithFont.mono(size: 16, weight: .bold))
                 .foregroundColor(MonolithTheme.Colors.textTertiary)
-                .frame(width: 36, height: 36)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Mention")
@@ -146,11 +148,15 @@ struct ComposerView: View {
                 .foregroundColor(sendEnabled
                                  ? MonolithTheme.Colors.textPrimary
                                  : MonolithTheme.Colors.textMuted)
-                .frame(width: 36, height: 36)
-                .background(sendEnabled
-                            ? MonolithTheme.Colors.accent
-                            : MonolithTheme.Colors.bgPanel)
-                .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.md))
+                .frame(width: 44, height: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: MonolithTheme.Radius.md)
+                        .fill(sendEnabled
+                              ? MonolithTheme.Colors.accent
+                              : MonolithTheme.Colors.bgPanel)
+                        .frame(width: 36, height: 36)
+                )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!sendEnabled)

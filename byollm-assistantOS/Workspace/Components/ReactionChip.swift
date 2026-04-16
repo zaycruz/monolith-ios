@@ -34,6 +34,8 @@ struct ReactionChip: View {
                     .stroke(borderColor, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.pill))
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(reaction.symbol.rawValue) \(reaction.count) reactions")
@@ -77,6 +79,8 @@ struct AddReactionChip: View {
                         .stroke(MonolithTheme.Colors.borderSoft, lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: MonolithTheme.Radius.pill))
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Add reaction")
