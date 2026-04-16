@@ -10,28 +10,26 @@
 
 import SwiftUI
 
-/// Navigation routes managed by `WorkspaceRootView`.
+/// Navigation routes managed by the per-tab NavigationStacks inside
+/// `WorkspaceTabShell`.
 enum WorkspaceRoute: Hashable {
     case channel(ChannelID)
     case dm(DMID)
     case thread(ThreadID)
 }
 
-/// Root coordinator. Holds one set of mock repositories and a navigation
-/// stack, and wires every screen together.
+/// Root view used by `AuthGatedRootView` once Clerk reports a signed-in
+/// user. Delegates to `WorkspaceTabShell`, which owns tab selection and
+/// a NavigationStack per tab.
 struct WorkspaceRootView: View {
 
-    // One realtime instance shared so sends fan out.
     private let workspaceRepo: WorkspaceRepository
     private let conversationRepo: ConversationRepository
     private let messageRepo: MessageRepository
     private let realtimeRepo: RealtimeRepository
     private let agentRepo: AgentRepository
     private let notificationRepo: NotificationRepository
-
-    @State private var path: [WorkspaceRoute] = []
-    @State private var showingInvite: Bool = false
-    @State private var showingAgentProfile: AgentID?
+    private let activityRepo: ActivityRepository
 
     init(
         workspaceRepo: WorkspaceRepository,
@@ -39,7 +37,8 @@ struct WorkspaceRootView: View {
         messageRepo: MessageRepository,
         realtimeRepo: RealtimeRepository,
         agentRepo: AgentRepository,
-        notificationRepo: NotificationRepository
+        notificationRepo: NotificationRepository,
+        activityRepo: ActivityRepository
     ) {
         self.workspaceRepo = workspaceRepo
         self.conversationRepo = conversationRepo
@@ -47,6 +46,7 @@ struct WorkspaceRootView: View {
         self.realtimeRepo = realtimeRepo
         self.agentRepo = agentRepo
         self.notificationRepo = notificationRepo
+        self.activityRepo = activityRepo
     }
 
     /// Convenience init that wires up mocks so the whole thing renders
@@ -59,59 +59,21 @@ struct WorkspaceRootView: View {
             messageRepo: MockMessageRepository(realtime: rt),
             realtimeRepo: rt,
             agentRepo: MockAgentRepository(),
-            notificationRepo: MockNotificationRepository()
+            notificationRepo: MockNotificationRepository(),
+            activityRepo: MockActivityRepository()
         )
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            WorkspaceHomeView(
-                workspaceRepo: workspaceRepo,
-                onOpenChannel: { path.append(.channel($0)) },
-                onOpenDM: { path.append(.dm($0)) },
-                onOpenInviteAgent: { showingInvite = true }
-            )
-            .navigationDestination(for: WorkspaceRoute.self) { route in
-                switch route {
-                case .channel(let id):
-                    ChannelView(
-                        channelID: id,
-                        conversationRepo: conversationRepo,
-                        messageRepo: messageRepo,
-                        realtimeRepo: realtimeRepo,
-                        onOpenThread: { path.append(.thread($0)) }
-                    )
-                case .dm(let id):
-                    AgentDMView(
-                        dmID: id,
-                        conversationRepo: conversationRepo,
-                        messageRepo: messageRepo,
-                        onOpenAgent: { showingAgentProfile = $0 }
-                    )
-                case .thread(let id):
-                    ThreadView(
-                        threadID: id,
-                        conversationRepo: conversationRepo,
-                        onClose: { if !path.isEmpty { path.removeLast() } }
-                    )
-                }
-            }
-        }
-        .preferredColorScheme(.dark)
-        .sheet(isPresented: $showingInvite) {
-            InviteAgentSheet(
-                agentRepo: agentRepo,
-                onClose: { showingInvite = false },
-                onInvited: { _ in showingInvite = false }
-            )
-        }
-        .sheet(item: $showingAgentProfile) { agentID in
-            AgentProfileSheet(
-                agentID: agentID,
-                agentRepo: agentRepo,
-                onClose: { showingAgentProfile = nil }
-            )
-        }
+        WorkspaceTabShell(
+            workspaceRepo: workspaceRepo,
+            conversationRepo: conversationRepo,
+            messageRepo: messageRepo,
+            realtimeRepo: realtimeRepo,
+            agentRepo: agentRepo,
+            notificationRepo: notificationRepo,
+            activityRepo: activityRepo
+        )
     }
 }
 

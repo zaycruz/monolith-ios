@@ -413,3 +413,62 @@ enum MockMessages {
         replies: clientOpsTriageReplies
     )
 }
+
+// MARK: - Activity feed fixtures
+/// Fixture events that track the Apr 15 storyline already modeled in
+/// MockMessages. Sorted newest-first is the repo's job; these are just
+/// the raw items.
+enum MockActivity {
+    static let events: [ActivityEvent] = [
+        // warden flagged the overnight recon — sourced from #client-ops m_co_6
+        ActivityEvent(
+            id: "ac_1",
+            kind: .flag,
+            actor: MockMembers.warden,
+            target: "#client-ops",
+            summary: "flagged auth token rotation failure during overnight recon",
+            timestamp: MockClock.at(hour: 8, minute: 54),
+            channelID: MockChannels.clientOps.id
+        ),
+        // scout mentioned Jason in #client-ops about JobNimbus validation
+        ActivityEvent(
+            id: "ac_2",
+            kind: .mention,
+            actor: MockMembers.scout,
+            target: "#client-ops",
+            summary: "@Jason Kowalski — need sample data to validate JobNimbus mapping",
+            timestamp: MockClock.at(hour: 8, minute: 51),
+            channelID: MockChannels.clientOps.id
+        ),
+        // New reply on Zay's morning IWP thread
+        ActivityEvent(
+            id: "ac_3",
+            kind: .threadReply,
+            actor: MockMembers.scout,
+            target: "thread: morning IWP",
+            summary: "Quick math: $4,200 harvestable × 32% marginal = ~$1,344 deferred tax",
+            timestamp: MockClock.at(hour: 8, minute: 47),
+            channelID: MockChannels.clientOps.id,
+            threadID: MockThreads.clientOpsTriageThread.id
+        ),
+        // dispatch completed TLH draft reply — sourced from DM m_dm_4
+        ActivityEvent(
+            id: "ac_4",
+            kind: .agentCompleted,
+            actor: MockMembers.dispatch,
+            target: "DM: dispatch",
+            summary: "drafted TLH reply for Greg — ready for your review",
+            timestamp: MockClock.at(hour: 14, minute: 5),
+            dmID: MockDMs.zayDispatch.id
+        ),
+        // herald completed overnight recon (status event, no link target)
+        ActivityEvent(
+            id: "ac_5",
+            kind: .agentStatus,
+            actor: MockMembers.herald,
+            target: "recon",
+            summary: "completed overnight recon — 0 findings above medium severity",
+            timestamp: MockClock.at(hour: 7, minute: 30)
+        )
+    ]
+}

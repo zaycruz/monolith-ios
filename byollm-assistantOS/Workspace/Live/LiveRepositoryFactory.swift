@@ -23,6 +23,7 @@ struct WorkspaceRepositorySet {
     let realtimeRepo: RealtimeRepository
     let agentRepo: AgentRepository
     let notificationRepo: NotificationRepository
+    let activityRepo: ActivityRepository
 }
 
 enum LiveRepositoryFactory {
@@ -51,7 +52,8 @@ enum LiveRepositoryFactory {
             messageRepo: MockMessageRepository(realtime: rt),
             realtimeRepo: rt,
             agentRepo: LiveAgentRepository(client: client),
-            notificationRepo: MockNotificationRepository()
+            notificationRepo: MockNotificationRepository(),
+            activityRepo: MockActivityRepository()
         )
     }
 
@@ -64,7 +66,8 @@ enum LiveRepositoryFactory {
             messageRepo: MockMessageRepository(realtime: rt),
             realtimeRepo: rt,
             agentRepo: MockAgentRepository(),
-            notificationRepo: MockNotificationRepository()
+            notificationRepo: MockNotificationRepository(),
+            activityRepo: MockActivityRepository()
         )
     }
 }

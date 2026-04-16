@@ -29,7 +29,8 @@ struct AuthGatedRootView: View {
                         messageRepo: repos.messageRepo,
                         realtimeRepo: repos.realtimeRepo,
                         agentRepo: repos.agentRepo,
-                        notificationRepo: repos.notificationRepo
+                        notificationRepo: repos.notificationRepo,
+                        activityRepo: repos.activityRepo
                     )
                 } else {
                     SignInView()

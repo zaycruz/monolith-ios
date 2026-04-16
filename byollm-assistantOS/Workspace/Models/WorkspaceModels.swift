@@ -368,6 +368,57 @@ struct AgentInviteSpec: Equatable {
     }
 }
 
+// MARK: - Activity
+/// The kind of event surfaced in the Activity tab. Keep this small and
+/// explicit — the UI branches on `kind` to decide how to render the row
+/// (glyph, verb phrasing, tappability).
+enum ActivityKind: String, Equatable {
+    case mention          // actor mentioned the viewer (@you)
+    case flag             // actor flagged / raised an alert
+    case threadReply      // new reply in a thread the viewer participates in
+    case agentCompleted   // agent finished a task / draft
+    case agentStatus      // agent status change (e.g. completed recon)
+}
+
+/// A single item in the Activity feed.
+///
+/// `target` is a human-readable label for the origin (e.g. "#client-ops",
+/// "thread: morning IWP", "DM: dispatch"). Navigation linkage is optional
+/// — a nil `channelID`/`threadID`/`dmID` renders as non-navigable.
+struct ActivityEvent: Identifiable, Equatable {
+    let id: String
+    let kind: ActivityKind
+    let actor: Member
+    let target: String
+    let summary: String
+    let timestamp: Date
+    let channelID: ChannelID?
+    let threadID: ThreadID?
+    let dmID: DMID?
+
+    init(
+        id: String,
+        kind: ActivityKind,
+        actor: Member,
+        target: String,
+        summary: String,
+        timestamp: Date,
+        channelID: ChannelID? = nil,
+        threadID: ThreadID? = nil,
+        dmID: DMID? = nil
+    ) {
+        self.id = id
+        self.kind = kind
+        self.actor = actor
+        self.target = target
+        self.summary = summary
+        self.timestamp = timestamp
+        self.channelID = channelID
+        self.threadID = threadID
+        self.dmID = dmID
+    }
+}
+
 // MARK: - Notification
 struct WorkspaceNotification: Identifiable, Equatable {
     let id: String

@@ -32,7 +32,6 @@ final class WorkspaceHomeViewModel: ObservableObject {
 
 struct WorkspaceHomeView: View {
     @StateObject private var viewModel: WorkspaceHomeViewModel
-    @State private var selectedTab: WorkspaceTab = .home
     var onOpenChannel: ((ChannelID) -> Void)?
     var onOpenDM: ((DMID) -> Void)?
     var onOpenInviteAgent: (() -> Void)?
@@ -69,7 +68,6 @@ struct WorkspaceHomeView: View {
                     Spacer().frame(height: MonolithTheme.Spacing.xxxl)
                 }
             }
-            TabBar(selection: $selectedTab)
         }
         .background(MonolithTheme.Colors.bgBase.ignoresSafeArea())
         .task {
