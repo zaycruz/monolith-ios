@@ -18,9 +18,8 @@ enum WorkspaceRoute: Hashable {
     case thread(ThreadID)
 }
 
-/// Root view used by `AuthGatedRootView` once Clerk reports a signed-in
-/// user. Delegates to `WorkspaceTabShell`, which owns tab selection and
-/// a NavigationStack per tab.
+/// Root view for the app. Delegates to `WorkspaceTabShell`, which owns
+/// tab selection and a NavigationStack per tab.
 struct WorkspaceRootView: View {
 
     private let workspaceRepo: WorkspaceRepository

@@ -2,19 +2,16 @@
 //  YouTabView.swift
 //  Workspace
 //
-//  Tab screen — signed-in user's profile. Reads the Clerk user via the
-//  environment-injected `Clerk` instance, shows initials / display name /
-//  email, and a sign-out button that calls `Clerk.shared.signOut()`.
+//  Tab screen — local profile. Reads the device-local personalization
+//  profile (name / nickname) from `PersonalizationStore` and shows a
+//  settings placeholder. No account or credentialing — the app is
+//  single-user and personal.
 //
 
 import SwiftUI
-import ClerkKit
 
 struct YouTabView: View {
-    @Environment(Clerk.self) private var clerk
-
-    @State private var signingOut: Bool = false
-    @State private var signOutError: String?
+    @State private var settings = PersonalizationStore().load()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,13 +20,6 @@ struct YouTabView: View {
                 VStack(alignment: .leading, spacing: MonolithTheme.Spacing.xl) {
                     profileCard
                     settingsSection
-                    signOutButton
-                    if let msg = signOutError {
-                        Text(msg)
-                            .font(MonolithFont.mono(size: 11))
-                            .foregroundColor(MonolithTheme.Colors.statusError)
-                            .padding(.horizontal, MonolithTheme.Spacing.lg)
-                    }
                     Spacer().frame(height: MonolithTheme.Spacing.xxxl)
                 }
                 .padding(.top, MonolithTheme.Spacing.lg)
@@ -51,7 +41,7 @@ struct YouTabView: View {
         .padding(.bottom, MonolithTheme.Spacing.sm)
     }
 
-    // MARK: profile card — avatar + name + email
+    // MARK: profile card — avatar + name + nickname
     private var profileCard: some View {
         HStack(alignment: .center, spacing: MonolithTheme.Spacing.lg) {
             avatar
@@ -59,7 +49,7 @@ struct YouTabView: View {
                 Text(displayName)
                     .font(MonolithFont.sans(size: 18, weight: .bold))
                     .foregroundColor(MonolithTheme.Colors.textPrimary)
-                Text(email)
+                Text(subtitle)
                     .font(MonolithFont.mono(size: 12))
                     .foregroundColor(MonolithTheme.Colors.textTertiary)
             }
@@ -112,64 +102,25 @@ struct YouTabView: View {
         .background(Color.white.opacity(0.02))
     }
 
-    // MARK: sign-out — glass secondary button treatment
-    private var signOutButton: some View {
-        Button(action: signOut) {
-            Text(signingOut ? "Signing out…" : "Sign out")
-                .font(MonolithFont.sans(size: 14, weight: .semibold))
-                .foregroundColor(MonolithTheme.Colors.textPrimary)
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .background(Color.white.opacity(0.04))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(MonolithTheme.Glass.border, lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(signingOut)
-        .padding(.horizontal, MonolithTheme.Spacing.lg)
-        .padding(.top, MonolithTheme.Spacing.lg)
-    }
-
-    private func signOut() {
-        signingOut = true
-        signOutError = nil
-        Task { @MainActor in
-            defer { signingOut = false }
-            do {
-                try await Clerk.shared.auth.signOut()
-            } catch {
-                self.signOutError = "Sign out failed: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    // MARK: Clerk user facades
+    // MARK: local profile facades
     private var displayName: String {
-        let first = clerk.user?.firstName ?? ""
-        let last = clerk.user?.lastName ?? ""
-        let full = "\(first) \(last)".trimmingCharacters(in: .whitespaces)
-        if !full.isEmpty { return full }
-        if let uname = clerk.user?.username, !uname.isEmpty { return uname }
-        if !email.isEmpty && email != "—" { return email }
-        return "Signed-in user"
+        if !settings.fullName.isEmpty { return settings.fullName }
+        if !settings.nickname.isEmpty { return settings.nickname }
+        return "You"
     }
 
-    private var email: String {
-        clerk.user?.primaryEmailAddress?.emailAddress ?? "—"
+    private var subtitle: String {
+        if !settings.nickname.isEmpty { return settings.nickname }
+        return "Local profile"
     }
 
     private var initials: String {
-        let f = (clerk.user?.firstName ?? "").first.map(String.init) ?? ""
-        let l = (clerk.user?.lastName ?? "").first.map(String.init) ?? ""
+        let words = settings.fullName.split(separator: " ")
+        let f = words.first?.first.map(String.init) ?? ""
+        let l = words.dropFirst().first?.first.map(String.init) ?? ""
         let combined = (f + l).uppercased()
         if !combined.isEmpty { return combined }
-        if let e = clerk.user?.primaryEmailAddress?.emailAddress,
-           let c = e.first {
-            return String(c).uppercased()
-        }
+        if let n = settings.nickname.first { return String(n).uppercased() }
         return "·"
     }
 }

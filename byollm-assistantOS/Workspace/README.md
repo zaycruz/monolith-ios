@@ -154,10 +154,10 @@ team profile. No TestFlight / App Store Connect is required for this.
    as trusted. On the iPhone: **Settings → General → VPN & Device
    Management → Developer App → RA5ZRTAX47 → Trust**. After that the app
    icon on the home screen becomes launchable.
-6. **Sign in with your portal email.** The app boots into `SignInView`,
-   tap **Continue**, and Clerk will send an email OTP to the address
-   associated with your workspace user. Once the OTP is verified the app
-   swaps to the live agent repo and starts hitting the Fleet API.
+6. **Boot into the workspace.** The app opens directly into the
+   workspace — no sign-in. It is single-user and personal; the profile
+   shown in the You tab comes from the device-local personalization
+   settings.
 
 If `xcodebuild` on the command line is preferred, replace the
 `-destination 'id=<simulator-uuid>'` flag with

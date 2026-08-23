@@ -12,7 +12,7 @@ import SwiftUI
 
 struct WorkspaceTabShell: View {
 
-    // Repositories, injected from AuthGatedRootView / previews.
+    // Repositories, injected from WorkspaceRootView / previews.
     private let workspaceRepo: WorkspaceRepository
     private let conversationRepo: ConversationRepository
     private let messageRepo: MessageRepository

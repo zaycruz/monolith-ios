@@ -4,13 +4,11 @@
 //
 //  Thin async/await HTTP client for the Raava Fleet control-plane API
 //  (`MonolithConfig.fleetAPIBaseURL`). The client is transport-only:
-//  it performs the request, attaches a Clerk-issued bearer token when
-//  one is available, and decodes the JSON body into a `Decodable` type.
-//  It does NOT know about domain models — those live in
+//  it performs the request and decodes the JSON body into a `Decodable`
+//  type. It does NOT know about domain models — those live in
 //  `LiveAgentRepository` and map API shapes to workspace `Agent` values.
 //
-//  Do NOT log the bearer token. Do NOT hardcode the base URL anywhere
-//  outside `MonolithConfig`.
+//  Do NOT hardcode the base URL anywhere outside `MonolithConfig`.
 //
 
 import Foundation
@@ -32,26 +30,18 @@ enum FleetAPIError: Error, Equatable {
     case unsupported(String)
 }
 
-/// Closure that returns a fresh Clerk JWT (or `nil` if the user is not
-/// signed in). Injected so the client stays decoupled from Clerk — the
-/// sign-in layer owns the SDK.
-typealias FleetTokenProvider = @Sendable () async -> String?
-
 final class LiveFleetClient: @unchecked Sendable {
 
     private let baseURL: URL
     private let session: URLSession
-    private let tokenProvider: FleetTokenProvider
     private let decoder: JSONDecoder
 
     init(
         baseURL: URL = MonolithConfig.fleetAPIBaseURL,
-        session: URLSession = .shared,
-        tokenProvider: @escaping FleetTokenProvider
+        session: URLSession = .shared
     ) {
         self.baseURL = baseURL
         self.session = session
-        self.tokenProvider = tokenProvider
 
         let d = JSONDecoder()
         // Fleet API emits snake_case; the Swift models use camelCase.
@@ -59,8 +49,7 @@ final class LiveFleetClient: @unchecked Sendable {
         self.decoder = d
     }
 
-    /// GETs `path` (e.g. `/api/containers`), attaches `Authorization`
-    /// when a token is available, and decodes the body as `T`.
+    /// GETs `path` (e.g. `/api/containers`) and decodes the body as `T`.
     func get<T: Decodable>(_ path: String, as type: T.Type) async throws -> T {
         return try await request(path: path, method: "GET", as: type)
     }
@@ -77,12 +66,6 @@ final class LiveFleetClient: @unchecked Sendable {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        // Attach bearer token if available. We intentionally do NOT log
-        // the token or include it in any error body.
-        if let token = await tokenProvider() {
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
 
         let (data, response) = try await session.data(for: req)
 
