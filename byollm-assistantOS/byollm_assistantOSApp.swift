@@ -11,8 +11,7 @@ import SwiftUI
 struct byollm_assistantOSApp: App {
     var body: some Scene {
         WindowGroup {
-            WorkspaceRootView()
-                .preferredColorScheme(.dark)
+            RootView()
         }
     }
 }
