@@ -6,7 +6,7 @@ The TestFlight lane archives the Release configuration with automatic signing an
 
 ### Prerequisites
 
-- Xcode is signed into the App Store Connect team `RA5ZRTAX47`.
+- Xcode is signed into the App Store Connect team `RA5ZRTAX47`, or an App Store Connect API key is available outside the repository.
 - App Store Connect contains the app for bundle identifier `openaccesslabs.byollm-assistantOS`.
 - `CURRENT_PROJECT_VERSION` is higher than every build already uploaded for the current marketing version.
 - The worktree is committed and the iOS, gateway, and contract test suites pass.
@@ -20,6 +20,25 @@ Run from the repository root:
 ```
 
 The script reads the version and build number from Xcode, writes the archive under `build/TestFlight/`, and uploads it using `scripts/testflight/ExportOptions.plist`. It refuses a dirty worktree so the uploaded binary maps to a commit. For a deliberate diagnostic build only, set `ALLOW_DIRTY_TESTFLIGHT_DEPLOY=1`.
+
+For API-key authentication, provide all three values through the environment. Keep the `.p8` file and issuer ID out of the repository:
+
+```sh
+APP_STORE_CONNECT_KEY_PATH=/secure/path/AuthKey_KEYID.p8 \
+APP_STORE_CONNECT_KEY_ID=KEYID \
+APP_STORE_CONNECT_ISSUER_ID=00000000-0000-0000-0000-000000000000 \
+./scripts/deploy-testflight.sh
+```
+
+If archiving succeeded but upload authentication failed, retry the existing archive without rebuilding:
+
+```sh
+SKIP_TESTFLIGHT_ARCHIVE=1 \
+APP_STORE_CONNECT_KEY_PATH=/secure/path/AuthKey_KEYID.p8 \
+APP_STORE_CONNECT_KEY_ID=KEYID \
+APP_STORE_CONNECT_ISSUER_ID=00000000-0000-0000-0000-000000000000 \
+./scripts/deploy-testflight.sh
+```
 
 After upload, wait for App Store Connect processing, confirm the build reports `VALID`, add it to the intended internal testing group, and install it from TestFlight.
 

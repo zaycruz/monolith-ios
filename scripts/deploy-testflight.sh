@@ -7,6 +7,25 @@ scheme="byollm-assistantOS"
 configuration="Release"
 export_options="$repo_root/scripts/testflight/ExportOptions.plist"
 
+authentication_args=()
+if [[ -n "${APP_STORE_CONNECT_KEY_PATH:-}" || -n "${APP_STORE_CONNECT_KEY_ID:-}" || -n "${APP_STORE_CONNECT_ISSUER_ID:-}" ]]; then
+  if [[ -z "${APP_STORE_CONNECT_KEY_PATH:-}" || -z "${APP_STORE_CONNECT_KEY_ID:-}" || -z "${APP_STORE_CONNECT_ISSUER_ID:-}" ]]; then
+    echo "APP_STORE_CONNECT_KEY_PATH, APP_STORE_CONNECT_KEY_ID, and APP_STORE_CONNECT_ISSUER_ID must be set together." >&2
+    exit 1
+  fi
+
+  if [[ ! -f "$APP_STORE_CONNECT_KEY_PATH" ]]; then
+    echo "App Store Connect API key not found: $APP_STORE_CONNECT_KEY_PATH" >&2
+    exit 1
+  fi
+
+  authentication_args=(
+    -authenticationKeyPath "$APP_STORE_CONNECT_KEY_PATH"
+    -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID"
+    -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID"
+  )
+fi
+
 if [[ "${ALLOW_DIRTY_TESTFLIGHT_DEPLOY:-0}" != "1" ]] && [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=normal)" ]]; then
   echo "Refusing to deploy from a dirty worktree." >&2
   echo "Commit the release, or set ALLOW_DIRTY_TESTFLIGHT_DEPLOY=1 for an intentional local build." >&2
@@ -34,15 +53,21 @@ export_path="$release_dir/upload"
 
 mkdir -p "$release_dir"
 
-echo "Archiving Monolith $marketing_version ($build_number)..."
-xcodebuild \
-  -project "$project" \
-  -scheme "$scheme" \
-  -configuration "$configuration" \
-  -destination "generic/platform=iOS" \
-  -archivePath "$archive_path" \
-  -allowProvisioningUpdates \
-  archive
+if [[ "${SKIP_TESTFLIGHT_ARCHIVE:-0}" != "1" ]]; then
+  echo "Archiving Monolith $marketing_version ($build_number)..."
+  xcodebuild \
+    -project "$project" \
+    -scheme "$scheme" \
+    -configuration "$configuration" \
+    -destination "generic/platform=iOS" \
+    -archivePath "$archive_path" \
+    -allowProvisioningUpdates \
+    "${authentication_args[@]}" \
+    archive
+elif [[ ! -d "$archive_path" ]]; then
+  echo "Cannot skip archive; archive does not exist: $archive_path" >&2
+  exit 1
+fi
 
 echo "Uploading Monolith $marketing_version ($build_number) to App Store Connect..."
 xcodebuild \
@@ -50,7 +75,8 @@ xcodebuild \
   -archivePath "$archive_path" \
   -exportPath "$export_path" \
   -exportOptionsPlist "$export_options" \
-  -allowProvisioningUpdates
+  -allowProvisioningUpdates \
+  "${authentication_args[@]}"
 
 echo "Upload submitted: Monolith $marketing_version ($build_number)"
 echo "Archive: $archive_path"
