@@ -7,6 +7,8 @@
 //
 
 import SwiftUI
+import Foundation
+
 
 // MARK: - Monolith emblem (4-segment geometric mark)
 /// Four angular segments arranged around a central void, matching the
@@ -101,5 +103,83 @@ struct PulseModifier: ViewModifier {
             .opacity(active ? (pulse ? 0.35 : 1) : 1)
             .animation(active ? .easeInOut(duration: 0.5).repeatForever() : .default, value: pulse)
             .onAppear { pulse = active }
+    }
+}
+
+// MARK: - Touch interaction
+struct TouchButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(
+                .easeOut(duration: reduceMotion ? 0 : 0.12),
+                value: configuration.isPressed
+            )
+    }
+}
+
+extension ButtonStyle where Self == TouchButtonStyle {
+    static var touch: TouchButtonStyle { TouchButtonStyle() }
+}
+
+// MARK: - Assistant prose
+struct MarkdownText: View {
+    let content: String
+
+    private var sections: [String] {
+        content
+            .components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
+                if section == "---" || section == "⸻" {
+                    Divider()
+                } else if let attributed = try? AttributedString(
+                    markdown: section.replacingOccurrences(of: "\n", with: "  \n")
+                ) {
+                    Text(attributed)
+                } else {
+                    Text(section)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Model selector
+struct ModelSelectorButton: View {
+    @ObservedObject var store: AppStore
+    var mode: ChatTheme.Mode
+
+    var body: some View {
+        Button(action: { store.openSheet() }) {
+            HStack(spacing: 7) {
+                StatusDot(status: store.activeServer?.status ?? .unknown, size: 7)
+                Text(store.activeModelShort)
+                    .font(ChatFont.sans(13, weight: .bold))
+                    .foregroundColor(ChatTheme.text(mode))
+                    .lineLimit(1)
+                Image(systemName: ChatIcon.chevronDown)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(ChatTheme.sub(mode))
+            }
+            .padding(.horizontal, 14)
+            .background(ChatTheme.card(mode))
+            .overlay(Capsule().stroke(ChatTheme.line2(mode), lineWidth: 1))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.touch)
+        .accessibilityLabel("Model \(store.activeModelShort)")
+        .accessibilityValue(store.activeServer?.status.label ?? "No server")
+        .accessibilityHint("Opens the model picker")
     }
 }

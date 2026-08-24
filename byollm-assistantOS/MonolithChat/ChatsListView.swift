@@ -19,8 +19,7 @@ struct ChatsListView: View {
                         .font(.system(size: 21))
                         .foregroundColor(ChatTheme.text(mode))
                         .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
+                }.buttonStyle(.touch)
             ))
 
             // Search
@@ -74,8 +73,7 @@ struct ChatsListView: View {
                                 .padding(.vertical, 13)
                                 .background(c.id == store.activeChatId ? ChatTheme.surface(mode) : Color.clear)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
-                            }
-                            .buttonStyle(.plain)
+                            }.buttonStyle(.touch)
                         }
                     }
 

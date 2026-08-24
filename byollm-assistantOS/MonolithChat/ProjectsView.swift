@@ -20,8 +20,7 @@ struct ProjectsView: View {
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(ChatTheme.text(mode))
                         .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
+                }.buttonStyle(.touch)
             ))
 
             ScrollView {
@@ -62,8 +61,7 @@ struct ProjectsView: View {
                             .background(ChatTheme.card(mode))
                             .overlay(RoundedRectangle(cornerRadius: 14).stroke(ChatTheme.line2(mode), lineWidth: 1))
                             .clipShape(RoundedRectangle(cornerRadius: 14))
-                        }
-                        .buttonStyle(.plain)
+                        }.buttonStyle(.touch)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -78,6 +76,7 @@ struct ProjectsView: View {
 struct NewProjectView: View {
     @ObservedObject var store: AppStore
     var mode: ChatTheme.Mode
+    @State private var repoPickerOpen = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -124,83 +123,44 @@ struct NewProjectView: View {
 
                     // Knowledge
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("KNOWLEDGE")
+                        Text("LINKED REPOSITORY")
                             .font(ChatFont.sans(11.5, weight: .bold))
                             .tracking(1)
                             .foregroundColor(ChatTheme.sub(mode))
 
-                        if store.npRepo == nil {
-                            Button(action: { store.repoPickerOpen.toggle() }) {
-                                HStack(spacing: 11) {
-                                    Image(systemName: ChatIcon.github)
-                                        .font(.system(size: 17))
-                                        .foregroundColor(ChatTheme.text(mode).opacity(0.75))
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Link a GitHub repository")
-                                            .font(ChatFont.sans(13.5, weight: .bold))
-                                            .foregroundColor(ChatTheme.text(mode))
-                                        Text("Give chats in this project access to your code")
-                                            .font(ChatFont.sans(11.5))
-                                            .foregroundColor(ChatTheme.sub(mode))
-                                    }
-                                    Spacer()
-                                    Image(systemName: ChatIcon.chevronRight)
-                                        .font(.system(size: 10, weight: .bold))
-                                        .foregroundColor(ChatTheme.sub(mode))
-                                }
-                                .padding(.horizontal, 15)
-                                .padding(.vertical, 13)
+                        Button(action: {
+                            if store.githubConnected {
+                                store.refreshGitHubRepositories()
+                                repoPickerOpen = true
+                            } else {
+                                store.openAddConn()
                             }
-                            .buttonStyle(.plain)
-
-                            if store.repoPickerOpen {
-                                VStack(spacing: 0) {
-                                    ForEach(["monolith/agents", "monolith/api", "monolith/support-tools"], id: \.self) { r in
-                                        Button(action: { store.npRepo = r; store.repoPickerOpen = false }) {
-                                            HStack {
-                                                Text(r)
-                                                    .font(ChatFont.mono(13, weight: .semibold))
-                                                    .foregroundColor(ChatTheme.text(mode))
-                                                Spacer()
-                                                Text("Private")
-                                                    .font(ChatFont.sans(11))
-                                                    .foregroundColor(ChatTheme.sub(mode))
-                                            }
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 11)
-                                            .clipShape(RoundedRectangle(cornerRadius: 9))
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                                .padding(6)
-                                .overlay(Rectangle().frame(height: 1).foregroundColor(ChatTheme.line(mode)), alignment: .top)
-                            }
-                        } else {
+                        }) {
                             HStack(spacing: 11) {
                                 Image(systemName: ChatIcon.github)
                                     .font(.system(size: 17))
                                     .foregroundColor(ChatTheme.text(mode).opacity(0.75))
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(store.npRepo ?? "")
-                                        .font(ChatFont.mono(13, weight: .bold))
+                                    Text("GitHub repositories")
+                                        .font(ChatFont.sans(13.5, weight: .bold))
                                         .foregroundColor(ChatTheme.text(mode))
+                                    Text(repositoryDetail)
+                                        .font(ChatFont.sans(11.5))
+                                        .foregroundColor(ChatTheme.sub(mode))
                                         .lineLimit(1)
-                                    Text("Connected")
-                                        .font(ChatFont.sans(11, weight: .bold))
-                                        .foregroundColor(ChatTheme.online)
                                 }
                                 Spacer()
-                                Button(action: { store.npRepo = nil }) {
-                                    Text("Remove")
-                                        .font(ChatFont.sans(12, weight: .bold))
-                                        .foregroundColor(ChatTheme.sub(mode))
-                                }
-                                .buttonStyle(.plain)
+                                Text(store.npRepo == nil ? "Choose" : "Linked")
+                                    .font(ChatFont.sans(10.5, weight: .bold))
+                                    .foregroundColor(ChatTheme.sub(mode))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .overlay(Capsule().stroke(ChatTheme.line2(mode), lineWidth: 1))
                             }
                             .padding(.horizontal, 15)
                             .padding(.vertical, 13)
                         }
+                        .buttonStyle(.touch)
                     }
                     .background(ChatTheme.card(mode))
                     .overlay(RoundedRectangle(cornerRadius: 13).stroke(ChatTheme.line2(mode), lineWidth: 1))
@@ -215,13 +175,94 @@ struct NewProjectView: View {
                             .padding(.vertical, 14)
                             .background(store.npName.trimmingCharacters(in: .whitespaces).isEmpty ? ChatTheme.line2(mode) : ChatTheme.text(mode))
                             .clipShape(RoundedRectangle(cornerRadius: 13))
-                    }
-                    .buttonStyle(.plain)
+                    }.buttonStyle(.touch)
                     .disabled(store.npName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
                 .padding(.bottom, 24)
+            }
+        }
+        .sheet(isPresented: $repoPickerOpen) {
+            RepositoryPickerView(store: store, mode: mode)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    private var repositoryDetail: String {
+        if let repository = store.npRepo { return repository }
+        if store.githubConnected {
+            return "Links repository metadata; workspace sync is not enabled yet."
+        }
+        return "Connect GitHub from this app to choose a repository."
+    }
+}
+
+private struct RepositoryPickerView: View {
+    @ObservedObject var store: AppStore
+    var mode: ChatTheme.Mode
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch store.repositoryLoadState {
+                case .loading where store.githubRepositories.isEmpty:
+                    ProgressView("Loading repositories…")
+                case .failed(let message):
+                    ContentUnavailableView(
+                        "Repositories unavailable",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text(message)
+                    )
+                default:
+                    if store.githubRepositories.isEmpty {
+                        ContentUnavailableView(
+                            "No repositories found",
+                            systemImage: ChatIcon.github,
+                            description: Text("The connected GitHub account did not return any repositories.")
+                        )
+                    } else {
+                        List(store.githubRepositories) { repository in
+                            Button(action: {
+                                store.selectRepository(repository.fullName)
+                                dismiss()
+                            }) {
+                                HStack(spacing: 10) {
+                                    Image(systemName: repository.isPrivate ? "lock.fill" : "book.closed")
+                                        .foregroundColor(ChatTheme.sub(mode))
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(repository.fullName)
+                                            .font(ChatFont.sans(13, weight: .semibold))
+                                            .foregroundColor(ChatTheme.text(mode))
+                                        Text(repository.defaultBranch.isEmpty ? "Default branch unavailable" : repository.defaultBranch)
+                                            .font(ChatFont.mono(10.5))
+                                            .foregroundColor(ChatTheme.sub(mode))
+                                    }
+                                    Spacer()
+                                    if store.npRepo == repository.fullName {
+                                        Image(systemName: "checkmark")
+                                            .foregroundColor(ChatTheme.online)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .listStyle(.plain)
+                    }
+                }
+            }
+            .navigationTitle("GitHub repository")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Refresh") { store.refreshGitHubRepositories() }
+                        .disabled(store.repositoryLoadState == .loading)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
     }
@@ -253,12 +294,11 @@ struct ProjectDetailView: View {
                         .padding(.vertical, 12)
                         .background(ChatTheme.text(mode))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
+                    }.buttonStyle(.touch)
 
-                    // Knowledge
+                    // Linked metadata
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("PROJECT KNOWLEDGE")
+                        Text("PROJECT LINKS")
                             .font(ChatFont.sans(11.5, weight: .bold))
                             .tracking(1)
                             .foregroundColor(ChatTheme.sub(mode))
@@ -267,7 +307,7 @@ struct ProjectDetailView: View {
                             Divider().background(ChatTheme.line(mode))
                             KnowledgeRow(icon: ChatIcon.upload, label: "Files", value: "\(store.activeProject?.files ?? 0) attached", mode: mode)
                             Divider().background(ChatTheme.line(mode))
-                            KnowledgeRow(icon: ChatIcon.github, label: "GitHub", value: store.activeProject?.repo ?? "Not linked", mode: mode, mono: true)
+                            KnowledgeRow(icon: ChatIcon.github, label: "GitHub metadata", value: store.activeProject?.repo ?? "Not linked", mode: mode, mono: true)
                         }
                         .background(ChatTheme.card(mode))
                         .overlay(RoundedRectangle(cornerRadius: 13).stroke(ChatTheme.line2(mode), lineWidth: 1))
@@ -301,8 +341,7 @@ struct ProjectDetailView: View {
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 12)
                                     .clipShape(RoundedRectangle(cornerRadius: 11))
-                                }
-                                .buttonStyle(.plain)
+                                }.buttonStyle(.touch)
                             }
                         }
                     }

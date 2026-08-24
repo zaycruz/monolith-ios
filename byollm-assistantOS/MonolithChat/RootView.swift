@@ -8,10 +8,10 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @StateObject private var store = AppStore()
-    @Environment(\.colorScheme) private var systemScheme
 
     private var mode: ChatTheme.Mode { store.mode }
 
@@ -69,7 +69,7 @@ struct RootView: View {
 
             // Add connection sheet
             if store.addConnOpen {
-                sheetBackdrop { store.closeAddConn() }
+                sheetBackdrop { store.dismissAddConnection() }
                 VStack {
                     Spacer()
                     AddConnectionSheet(store: store, mode: mode)
@@ -82,15 +82,50 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.22), value: store.modelSheet)
         .animation(.easeInOut(duration: 0.22), value: store.addConnOpen)
         .animation(.easeInOut(duration: 0.22), value: store.newProjOpen)
+        .simultaneousGesture(drawerGesture)
+        .onChange(of: store.drawer) { _, isOpen in
+            if isOpen {
+                dismissAppKeyboard()
+                store.dismissReasoning()
+            }
+        }
         .preferredColorScheme(store.isDark ? .dark : .light)
+    }
+
+    private var drawerGesture: some Gesture {
+        DragGesture(minimumDistance: 16, coordinateSpace: .global)
+            .onEnded { value in
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > abs(vertical) * 1.35 else { return }
+
+                if store.drawer {
+                    if horizontal < -64 { store.closeDrawer() }
+                } else if value.startLocation.x <= 28,
+                          horizontal > 64,
+                          !store.modelSheet,
+                          !store.addConnOpen,
+                          !store.newProjOpen {
+                    store.openDrawer()
+                }
+            }
     }
 
     private func sheetBackdrop(_ onTap: @escaping () -> Void) -> some View {
         ChatTheme.scrim(mode)
             .ignoresSafeArea()
-            .onTapGesture { onTap() }
+            .onTapGesture {
+                dismissAppKeyboard()
+                store.dismissReasoning()
+                onTap()
+            }
             .zIndex(8)
     }
+}
+
+@MainActor
+func dismissAppKeyboard() {
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 }
 
 #Preview {

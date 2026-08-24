@@ -2,6 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>openaccesslabs.monolith.github-oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>monolith</string>
+			</array>
+		</dict>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
@@ -15,5 +30,11 @@
 	<string>This app needs camera access to take photos for chat attachments.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This app needs photo library access to select images for chat attachments.</string>
+	<key>MonolithDefaultServerID</key>
+	<string>$(MONOLITH_DEFAULT_SERVER_ID)</string>
+	<key>MonolithDefaultServerName</key>
+	<string>$(MONOLITH_DEFAULT_SERVER_NAME)</string>
+	<key>MonolithDefaultServerURL</key>
+	<string>$(MONOLITH_DEFAULT_SERVER_URL)</string>
 </dict>
 </plist>

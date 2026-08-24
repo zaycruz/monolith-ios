@@ -19,7 +19,11 @@ struct HomeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ChatTopBar(store: store, mode: mode, center: nil)
+            ChatTopBar(
+                store: store,
+                mode: mode,
+                center: AnyView(ModelSelectorButton(store: store, mode: mode))
+            )
             Spacer()
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 10) {
@@ -56,11 +60,18 @@ struct HomeView: View {
                             .overlay(RoundedRectangle(cornerRadius: 14).stroke(ChatTheme.line2(mode), lineWidth: 1))
                             .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.touch)
+                    .disabled(!store.isChatReady)
+                    .opacity(store.isChatReady ? 1 : 0.5)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 10)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            store.dismissReasoning()
+            dismissAppKeyboard()
         }
     }
 }
@@ -74,7 +85,9 @@ struct ChatTopBar: View {
 
     var body: some View {
         HStack {
-            Button(action: { store.openDrawer() }) {
+            Button(action: {
+                store.openDrawer()
+            }) {
                 VStack(spacing: 5) {
                     RoundedRectangle(cornerRadius: 2).fill(ChatTheme.text(mode)).frame(width: 18, height: 2)
                     RoundedRectangle(cornerRadius: 2).fill(ChatTheme.text(mode)).frame(width: 12, height: 2)
@@ -83,7 +96,8 @@ struct ChatTopBar: View {
                 .frame(width: 44, height: 44)
                 .padding(.leading, 6)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.touch)
+            .accessibilityLabel("Open navigation")
 
             Spacer()
 
@@ -100,7 +114,8 @@ struct ChatTopBar: View {
                     .frame(width: 44, height: 44)
                     .padding(.trailing, 6)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.touch)
+            .accessibilityLabel("New chat")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)

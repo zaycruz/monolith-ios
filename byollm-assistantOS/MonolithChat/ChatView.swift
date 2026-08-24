@@ -15,7 +15,12 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ChatTopBar(store: store, mode: mode, center: AnyView(modelPill), showBorder: true)
+            ChatTopBar(
+                store: store,
+                mode: mode,
+                center: AnyView(ModelSelectorButton(store: store, mode: mode)),
+                showBorder: true
+            )
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
@@ -36,6 +41,11 @@ struct ChatView: View {
                     .padding(.top, 18)
                     .padding(.bottom, 8)
                 }
+                .scrollDismissesKeyboard(.interactively)
+                .onTapGesture {
+                    store.dismissReasoning()
+                    dismissAppKeyboard()
+                }
                 .onChange(of: store.tok) { _, _ in
                     if let last = store.activeChat?.messages.last {
                         proxy.scrollTo(last.id, anchor: .bottom)
@@ -45,25 +55,6 @@ struct ChatView: View {
         }
     }
 
-    private var modelPill: some View {
-        Button(action: { store.openSheet() }) {
-            HStack(spacing: 7) {
-                StatusDot(status: store.activeServer?.status ?? .unknown, size: 7)
-                Text(store.activeModelShort)
-                    .font(ChatFont.sans(12.5, weight: .bold))
-                    .foregroundColor(ChatTheme.text(mode))
-                Image(systemName: ChatIcon.chevronDown)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(ChatTheme.sub(mode))
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(ChatTheme.card(mode))
-            .overlay(Capsule().stroke(ChatTheme.line2(mode), lineWidth: 1))
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 // MARK: - Message row
@@ -95,35 +86,112 @@ struct MessageRowView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(Array(msg.blocks.enumerated()), id: \.element.id) { bi, block in
                         switch block {
-                        case .text(let t):
-                            Text(t)
-                                .font(ChatFont.sans(14.5))
+                        case .text(let text):
+                            MarkdownText(content: text)
+                                .font(ChatFont.sans(15))
                                 .lineSpacing(6)
                                 .foregroundColor(ChatTheme.text(mode))
-                                .overlay(streaming && msg.streaming && bi == msg.blocks.count - 1 ? AnyView(BlinkCursor(mode: mode)) : AnyView(EmptyView()), alignment: .bottomTrailing)
+                                .textSelection(.enabled)
+                                .overlay(
+                                    streaming
+                                        && msg.streaming
+                                        && bi == msg.blocks.count - 1
+                                        ? AnyView(BlinkCursor(mode: mode))
+                                        : AnyView(EmptyView()),
+                                    alignment: .bottomTrailing
+                                )
                         case .code(let lang, let t):
                             CodeBlockView(lang: lang, code: t, mode: mode)
+                        case .tool(let tool):
+                            ToolCallRow(tool: tool, mode: mode)
                         }
                     }
                     if isLast && !streaming && !msg.blocks.isEmpty {
                         Button(action: { store.regen() }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 12, weight: .bold))
-                                Text("Regenerate")
-                                    .font(ChatFont.sans(12, weight: .bold))
-                            }
-                            .foregroundColor(ChatTheme.sub(mode))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .overlay(Capsule().stroke(ChatTheme.line2(mode), lineWidth: 1))
-                            .clipShape(Capsule())
+                            Label("Regenerate", systemImage: "arrow.clockwise")
+                                .font(ChatFont.sans(12, weight: .bold))
+                                .foregroundColor(ChatTheme.sub(mode))
+                                .padding(.horizontal, 12)
+                                .overlay(
+                                    Capsule().stroke(ChatTheme.line2(mode), lineWidth: 1)
+                                )
+                                .clipShape(Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.touch)
+                        .accessibilityHint("Generates a new response to the last message")
                     }
                 }
             }
         }
+    }
+}
+
+struct ToolCallRow: View {
+    let tool: ToolCallBlock
+    let mode: ChatTheme.Mode
+    @State private var expanded = false
+
+    private var icon: String {
+        switch tool.status {
+        case .running: return "gearshape.2"
+        case .succeeded: return "checkmark.circle.fill"
+        case .failed: return "exclamationmark.circle.fill"
+        case .cancelled: return "stop.circle.fill"
+        }
+    }
+
+    private var statusLabel: String {
+        switch tool.status {
+        case .running: return "Running"
+        case .succeeded: return "Done"
+        case .failed: return "Failed"
+        case .cancelled: return "Stopped"
+        }
+    }
+
+    var body: some View {
+        Button(action: { withAnimation(.easeInOut(duration: 0.16)) { expanded.toggle() } }) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 9) {
+                    Image(systemName: icon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .symbolEffect(.rotate, options: .repeating, isActive: tool.status == .running)
+                    Text(tool.name)
+                        .font(ChatFont.sans(13, weight: .bold))
+                    Spacer()
+                    Text(statusLabel)
+                        .font(ChatFont.sans(11, weight: .semibold))
+                        .foregroundColor(ChatTheme.sub(mode))
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(ChatTheme.sub(mode))
+                }
+
+                if expanded {
+                    if !tool.input.isEmpty {
+                        Text(tool.input)
+                            .font(ChatFont.mono(11))
+                            .foregroundColor(ChatTheme.sub(mode))
+                            .lineLimit(8)
+                    }
+                    if !tool.output.isEmpty {
+                        Text(tool.output)
+                            .font(ChatFont.mono(11))
+                            .foregroundColor(ChatTheme.text(mode))
+                            .lineLimit(12)
+                    }
+                }
+            }
+            .foregroundColor(ChatTheme.text(mode))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(ChatTheme.card(mode))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(ChatTheme.line2(mode), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 11))
+        }
+        .buttonStyle(.touch)
+        .accessibilityLabel("\(tool.name) tool call, \(statusLabel)")
+        .accessibilityHint("Shows tool input and output")
     }
 }
 
@@ -145,16 +213,20 @@ struct CodeBlockView: View {
                 Button(action: {
                     UIPasteboard.general.string = code
                     copied = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                        copied = false
+                    }
                 }) {
-                    Text(copied ? "Copied" : "Copy")
+                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                         .font(ChatFont.sans(11, weight: .semibold))
                         .foregroundColor(ChatTheme.sub(.dark))
+                        .padding(.horizontal, 8)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.touch)
+                .accessibilityLabel(copied ? "Code copied" : "Copy code")
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.vertical, 2)
             .overlay(Rectangle().frame(height: 1).foregroundColor(Color.white.opacity(0.12)), alignment: .bottom)
 
             ScrollView(.horizontal, showsIndicators: false) {
