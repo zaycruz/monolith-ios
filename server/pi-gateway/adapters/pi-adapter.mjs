@@ -145,7 +145,6 @@ export class PiAdapterSession {
       this.resolvePending();
       this.process.stop();
     }, this.config.abortGraceMs);
-    this.abortTimer.unref?.();
   }
 
   resolvePending() {

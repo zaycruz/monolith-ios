@@ -119,7 +119,6 @@ export async function loadHarnessModules(
             () => reject(new Error(`harness module ${specifier} did not load within ${timeoutMs}ms`)),
             timeoutMs,
           );
-          timer.unref?.();
         }),
       ]);
       registrations.push(...(Array.isArray(created) ? created : [created]));

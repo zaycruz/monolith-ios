@@ -154,7 +154,6 @@ export class OhMyPiAdapterSession {
       this.resolvePending();
       this.process.stop();
     }, this.config.abortGraceMs);
-    this.abortTimer.unref?.();
   }
 
   resolvePending() {

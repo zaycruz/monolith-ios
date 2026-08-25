@@ -121,7 +121,6 @@ export class RpcSessionProcess {
             () => reject(new Error(`${this.runtime} did not become ready within ${timeoutMs}ms`)),
             timeoutMs,
           );
-          timer.unref?.();
         }),
       ]);
     } finally {
@@ -137,7 +136,6 @@ export class RpcSessionProcess {
         if (!this.requests.delete(id)) return;
         reject(new Error(`${this.runtime} did not answer ${command.type ?? "command"} within ${this.requestTimeoutMs}ms`));
       }, this.requestTimeoutMs);
-      timer.unref?.();
       this.requests.set(id, { resolve, reject, timer });
     });
     try {
@@ -165,7 +163,6 @@ export class RpcSessionProcess {
     const timer = setTimeout(() => {
       if (child.exitCode === null) child.kill("SIGKILL");
     }, this.stopGraceMs);
-    timer.unref?.();
     child.once("exit", () => clearTimeout(timer));
   }
 
