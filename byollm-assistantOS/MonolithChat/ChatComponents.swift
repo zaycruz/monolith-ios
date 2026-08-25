@@ -106,38 +106,6 @@ struct PulseModifier: ViewModifier {
     }
 }
 
-enum ConversationActivityState {
-    case working
-    case ready
-}
-
-struct ConversationActivityIndicator: View {
-    let state: ConversationActivityState
-    let mode: ChatTheme.Mode
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Group {
-            switch state {
-            case .working where reduceMotion:
-                Circle()
-                    .stroke(ChatTheme.sub(mode), lineWidth: 1.5)
-                    .frame(width: 11, height: 11)
-            case .working:
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(ChatTheme.sub(mode))
-            case .ready:
-                Circle()
-                    .fill(ChatTheme.online)
-                    .frame(width: 8, height: 8)
-            }
-        }
-        .frame(width: 20, height: 20)
-        .accessibilityHidden(true)
-    }
-}
-
 // MARK: - Touch interaction
 struct TouchButtonStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -197,7 +165,7 @@ struct ModelSelectorButton: View {
             HStack(spacing: 7) {
                 StatusDot(status: store.activeServer?.status ?? .unknown, size: 7)
                 Text(store.activeModelShort)
-                    .font(ChatFont.sans(.subheadline, weight: .bold))
+                    .font(ChatFont.sans(13, weight: .bold))
                     .foregroundColor(ChatTheme.text(mode))
                     .lineLimit(1)
                 Image(systemName: ChatIcon.chevronDown)

@@ -31,7 +31,7 @@ struct DrawerView: View {
                         .font(.system(size: 15))
                         .foregroundColor(ChatTheme.sub(mode))
                     TextField("Search chats", text: $store.chatQuery)
-                        .font(ChatFont.sans(.callout))
+                        .font(ChatFont.sans(14))
                         .foregroundColor(ChatTheme.text(mode))
                         .submitLabel(.search)
                         .textInputAutocapitalization(.never)
@@ -65,7 +65,7 @@ struct DrawerView: View {
 
                 // Recents
                 Text("RECENTS")
-                    .font(ChatFont.sans(.caption, weight: .bold))
+                    .font(ChatFont.sans(11, weight: .bold))
                     .tracking(1)
                     .foregroundColor(ChatTheme.sub(mode))
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -76,27 +76,16 @@ struct DrawerView: View {
                 ScrollView {
                     VStack(spacing: 2) {
                         ForEach(drawerChats) { chat in
-                            let isGenerating = store.isGenerating(chatID: chat.id)
-                            let isReady = store.isChatReadyForAttention(chatID: chat.id)
-
                             Button(action: { store.openChatFromDrawer(chat.id) }) {
-                                HStack(spacing: 8) {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(chat.title)
-                                            .font(ChatFont.sans(.callout, weight: .semibold))
-                                            .foregroundColor(ChatTheme.text(mode))
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                        Text(chat.time)
-                                            .font(ChatFont.sans(.caption))
-                                            .foregroundColor(ChatTheme.sub(mode))
-                                    }
-                                    Spacer(minLength: 6)
-                                    if isGenerating {
-                                        ConversationActivityIndicator(state: .working, mode: mode)
-                                    } else if isReady {
-                                        ConversationActivityIndicator(state: .ready, mode: mode)
-                                    }
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(chat.title)
+                                        .font(ChatFont.sans(14, weight: .semibold))
+                                        .foregroundColor(ChatTheme.text(mode))
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                    Text(chat.time)
+                                        .font(ChatFont.sans(11.5))
+                                        .foregroundColor(ChatTheme.sub(mode))
                                 }
                                 .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                                 .padding(.horizontal, 10)
@@ -108,9 +97,6 @@ struct DrawerView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 11))
                             }
                             .buttonStyle(.touch)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(chat.title)
-                            .accessibilityValue(isGenerating ? "Working" : isReady ? "Ready" : chat.time)
                         }
 
                         if drawerChats.isEmpty {
@@ -119,7 +105,7 @@ struct DrawerView: View {
                                     ? "Your conversations will appear here."
                                     : "No chats match your search."
                             )
-                            .font(ChatFont.sans(.footnote))
+                            .font(ChatFont.sans(13))
                             .foregroundColor(ChatTheme.sub(mode))
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 18)
@@ -137,11 +123,11 @@ struct DrawerView: View {
                         StatusDot(status: store.activeServer?.status ?? .unknown)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(store.activeServer?.name ?? "Set up a server")
-                                .font(ChatFont.sans(.callout, weight: .bold))
+                                .font(ChatFont.sans(13.5, weight: .bold))
                                 .foregroundColor(ChatTheme.text(mode))
                                 .lineLimit(1)
                             Text(store.activeServer?.status.label ?? "No server configured")
-                                .font(ChatFont.sans(.caption))
+                                .font(ChatFont.sans(11.5))
                                 .foregroundColor(ChatTheme.sub(mode))
                         }
                         Spacer()
@@ -203,7 +189,7 @@ struct DrawerNavRow: View {
                     .font(.system(size: 18))
                     .foregroundColor(ChatTheme.text(mode).opacity(bold ? 1 : 0.8))
                 Text(label)
-                    .font(ChatFont.sans(.callout, weight: bold ? .bold : .semibold))
+                    .font(ChatFont.sans(13.5, weight: bold ? .bold : .semibold))
                     .foregroundColor(ChatTheme.text(mode))
                 Spacer()
             }
