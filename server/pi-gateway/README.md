@@ -82,20 +82,34 @@ Explicit extension paths are loaded while automatic extension discovery remains 
 
 ## GitHub repositories
 
-GitHub connection starts in the iOS app. The app opens GitHub in an authenticated browser session, receives the custom-scheme callback, and returns only the short-lived authorization code to the active gateway. The gateway completes the exchange, encrypts the resulting credential at rest, and exposes connection state at `GET /v1/connections` plus sanitized repository metadata at `GET /v1/github/repositories`. Access and refresh tokens are never returned to iOS or inherited by Pi, Oh My Pi, or external harness children.
+Connections are server plugins, separate from harness plugins. The bundled GitHub plugin is always loaded; operators extend the list with comma-separated module paths in `MONOLITH_CONNECTION_MODULES`. A connection module exports `createConnection(context)` (or a default factory) returning `{ config, plugin }`. Its manifest supplies a stable `id`, display name, availability, resource kind, and capabilities. The plugin implements only the methods for the capabilities it advertises: `status`, `startAuthorization`, `completeAuthorization`, `disconnect`, and `repositories`.
+
+Connection modules are trusted in-process operator code, not a sandbox. They may declare `sensitiveEnvironmentKeys`; the gateway removes those values from harness child environments after loading connection configuration. Provider tokens remain inside the credential-holding plugin and must never be returned by plugin methods.
+
+The generic connection API is:
+
+- `GET /v1/connections`
+- `POST /v1/connections/:id/authorization/start`
+- `POST /v1/connections/:id/authorization/complete`
+- `DELETE /v1/connections/:id`
+- `GET /v1/connections/:id/repositories`
+
+The `/v1/github/*` routes remain one-release compatibility aliases for older TestFlight builds.
+
+GitHub connection starts in the iOS app. The app opens GitHub in an authenticated browser session, receives the custom-scheme callback, and returns only the short-lived authorization code to the active gateway. The gateway completes the exchange, encrypts the resulting credential at rest, and exposes connection state at `GET /v1/connections` plus sanitized repository metadata at `GET /v1/connections/github/repositories`. Access and refresh tokens are never returned to iOS or inherited by Pi, Oh My Pi, or external harness children.
 
 Register a GitHub App with the callback URL `monolith://oauth/github`. Give it read-only Metadata permission, plus read-only Contents permission only when repository content access is implemented. Let users choose which repositories the installation may access. Configure the gateway with:
 
 ```sh
-GITHUB_OAUTH_CLIENT_ID=... \
-GITHUB_OAUTH_CLIENT_SECRET=... \
-GITHUB_APP_SLUG=your-monolith-app \
-GITHUB_CREDENTIAL_ENCRYPTION_KEY=... \
+MONOLITH_CONNECTION_GITHUB_CLIENT_ID=... \
+MONOLITH_CONNECTION_GITHUB_CLIENT_SECRET=... \
+MONOLITH_CONNECTION_GITHUB_APP_SLUG=your-monolith-app \
+MONOLITH_CONNECTION_GITHUB_ENCRYPTION_KEY=... \
 PI_GATEWAY_TOKEN=... \
 node server.mjs
 ```
 
-`GITHUB_CREDENTIAL_ENCRYPTION_KEY` must decode from base64 to exactly 32 bytes. The encrypted credential file defaults to the gateway session directory and is written with owner-only permissions. The callback is fixed to `monolith://oauth/github`; redirect-URI overrides are intentionally ignored. `GITHUB_PRINCIPAL_ID` may identify a stable single-user installation and defaults to `single-user`, so rotating `PI_GATEWAY_TOKEN` does not orphan the encrypted GitHub credential. The gateway removes secrets from Node's mutable environment and passes a separately sanitized environment to harness children. On macOS, however, values present in the gateway's launch environment can remain visible to another process running as the same OS user even after Node deletes them. Run tool-capable harnesses under a separate UID or container from the credential-holding gateway; environment scrubbing alone is defense in depth, not an isolation boundary. The OAuth endpoints require HTTPS except for loopback development servers; production gateways should be placed behind TLS and protected with `PI_GATEWAY_TOKEN`.
+The equivalent legacy `GITHUB_*` names remain supported for one release. `MONOLITH_CONNECTION_GITHUB_ENCRYPTION_KEY` must decode from base64 to exactly 32 bytes. The encrypted credential file defaults to the gateway session directory and is written with owner-only permissions. The callback is fixed to `monolith://oauth/github`; redirect-URI overrides are intentionally ignored. `MONOLITH_CONNECTION_GITHUB_PRINCIPAL_ID` may identify a stable single-user installation and defaults to `single-user`, so rotating `PI_GATEWAY_TOKEN` does not orphan the encrypted GitHub credential. The gateway removes secrets from Node's mutable environment and passes a separately sanitized environment to harness children. On macOS, however, values present in the gateway's launch environment can remain visible to another process running as the same OS user even after Node deletes them. Run tool-capable harnesses under a separate UID or container from the credential-holding gateway; environment scrubbing alone is defense in depth, not an isolation boundary. The OAuth endpoints require HTTPS except for loopback development servers; production gateways should be placed behind TLS and protected with `PI_GATEWAY_TOKEN`.
 
 Repository discovery is limited to repositories selected for the GitHub App installation and follows GitHub pages up to a bounded 500-repository cap. This release discovers and links repository metadata to a project; it does not yet clone or sync repository contents into a harness workspace. The gateway returns an honest disconnected or installation-required state when OAuth is not configured, authorization is absent, or repository installation has not been completed.
 

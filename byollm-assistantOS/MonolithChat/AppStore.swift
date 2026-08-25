@@ -134,6 +134,8 @@ final class AppStore: ObservableObject {
     @Published private(set) var githubRepositories: [GitHubRepository] = []
     @Published private(set) var repositoryLoadState: ConnectionLoadState = .idle
     @Published private(set) var githubAuthorizationState: GitHubAuthorizationState = .idle
+    @Published private(set) var selectedConnectionID: String?
+    @Published private(set) var selectedRepositoryConnectionID: String?
 
     // MARK: - Projects
 
@@ -177,14 +179,15 @@ final class AppStore: ObservableObject {
     }
 
     private enum GitHubFlowError: LocalizedError {
-        case invalidAuthorizationURL, invalidInstallationURL, invalidCallback, stateMismatch, denied(String)
+        case invalidAuthorizationURL, invalidInstallationURL, invalidCallback, invalidRepositoryResponse, stateMismatch, denied(String)
 
         var errorDescription: String? {
             switch self {
-            case .invalidAuthorizationURL: return "The Monolith server returned an invalid GitHub authorization URL."
-            case .invalidInstallationURL: return "The Monolith server returned an invalid GitHub App installation URL."
-            case .invalidCallback: return "GitHub returned an invalid authorization callback."
-            case .stateMismatch: return "GitHub authorization could not be verified."
+            case .invalidAuthorizationURL: return "The Monolith server returned an invalid connection authorization URL."
+            case .invalidInstallationURL: return "The Monolith server returned an invalid connection setup URL."
+            case .invalidCallback: return "The connection provider returned an invalid authorization callback."
+            case .invalidRepositoryResponse: return "The connection plugin returned repositories for a different provider."
+            case .stateMismatch: return "Connection authorization could not be verified."
             case .denied(let message): return message
             }
         }
@@ -195,6 +198,7 @@ final class AppStore: ObservableObject {
         let serverID: Int
         let serverURL: String
         let apiToken: String?
+        let connectionID: String
     }
 
     private struct ActiveStream: Equatable {
@@ -220,6 +224,7 @@ final class AppStore: ObservableObject {
         self.selectedRuntime = AgentRuntime(
             rawValue: defaults.string(forKey: "mc.selectedRuntime") ?? AgentRuntime.pi.rawValue
         )
+        loadProjects()
         loadServers()
     }
 
@@ -321,6 +326,18 @@ final class AppStore: ObservableObject {
         var url: String
         var active: Bool
         var authenticated: Bool?
+    }
+
+    private func loadProjects() {
+        guard let data = defaults.data(forKey: "mc.projects"),
+              let saved = try? JSONDecoder().decode([ChatProject].self, from: data) else { return }
+        projects = saved
+        nextProjectId = (saved.map(\.id).max() ?? 0) + 1
+    }
+
+    private func persistProjects() {
+        guard let data = try? JSONEncoder().encode(projects) else { return }
+        defaults.set(data, forKey: "mc.projects")
     }
 
     var activeServer: LLMServer? {
@@ -716,8 +733,13 @@ final class AppStore: ObservableObject {
     func openDrawer() { drawer = true }
     func closeDrawer() { drawer = false }
 
-    func newChat() { activeChatId = nil; screen = .home }
-    func newChatFromDrawer() { activeChatId = nil; screen = .home; drawer = false }
+    func newChat() { activeChatId = nil; activeProjectId = nil; screen = .home }
+    func newChat(inProject projectID: Int?) {
+        activeChatId = nil
+        activeProjectId = projectID
+        screen = .home
+    }
+    func newChatFromDrawer() { activeChatId = nil; activeProjectId = nil; screen = .home; drawer = false }
 
     func openSettingsFromDrawer() { screen = .settings; drawer = false }
     func closeSettings() { screen = activeChatId != nil ? .chat : .home }
@@ -743,7 +765,22 @@ final class AppStore: ObservableObject {
 
     func openConnections() { screen = .connections; refreshConnections() }
     func closeConnections() { screen = .settings; addConnOpen = false }
-    func openAddConn() { addConnOpen = true }
+    func openAddConn(_ connectionID: String? = nil) {
+        selectedConnectionID = connectionID
+            ?? repositoryConnection?.id
+            ?? connections.first(where: { $0.isAvailable })?.id
+        if !githubOperationIsActive {
+            do {
+                githubAuthorizationState = try authorizationState(
+                    from: connections,
+                    connectionID: selectedConnectionID
+                )
+            } catch {
+                githubAuthorizationState = .failed(error.localizedDescription)
+            }
+        }
+        addConnOpen = true
+    }
     func closeAddConn() { addConnOpen = false }
     func dismissAddConnection() {
         cancelGitHubAuthorization()
@@ -755,6 +792,9 @@ final class AppStore: ObservableObject {
         npName = ""
         npDesc = ""
         npRepo = nil
+        if !repositoryConnections.contains(where: { $0.id == selectedRepositoryConnectionID }) {
+            selectedRepositoryConnectionID = repositoryConnections.first?.id
+        }
     }
     func closeNewProject() { newProjOpen = false }
 
@@ -766,10 +806,20 @@ final class AppStore: ObservableObject {
 
     // MARK: - Connections
 
-    var githubConnected: Bool {
-        connections.contains(where: {
-            $0.id == "github" && $0.connected && $0.installationRequired != true
-        })
+    var repositoryConnected: Bool { repositoryConnection != nil }
+    var repositoryConnections: [AppConnection] {
+        connections.filter {
+            $0.isAvailable && $0.connected && !$0.requiresSetup && $0.supports("repositories")
+        }
+    }
+    var selectedConnection: AppConnection? {
+        guard let selectedConnectionID else { return nil }
+        return connections.first(where: { $0.id == selectedConnectionID })
+    }
+
+    private var repositoryConnection: AppConnection? {
+        guard let selectedRepositoryConnectionID else { return nil }
+        return repositoryConnections.first(where: { $0.id == selectedRepositoryConnectionID })
     }
 
     func refreshConnections() {
@@ -795,13 +845,26 @@ final class AppStore: ObservableObject {
                 guard self.connectionRefreshGeneration == generation,
                       self.activeServer?.id == server.id,
                       self.activeServer.flatMap({ self.serverURLIdentity($0.url) }) == canonicalURL else { return }
-                let refreshedGitHubState = try self.githubState(from: remote)
+                if !self.githubOperationIsActive,
+                   (self.selectedConnectionID == nil || !remote.contains(where: { $0.id == self.selectedConnectionID })) {
+                    self.selectedConnectionID = remote.first(where: { $0.isAvailable })?.id
+                }
+                let refreshedGitHubState = try self.authorizationState(
+                    from: remote,
+                    connectionID: self.selectedConnectionID
+                )
                 self.connections = remote
+                let availableRepositories = remote.filter {
+                    $0.isAvailable && $0.connected && !$0.requiresSetup && $0.supports("repositories")
+                }
+                if !availableRepositories.contains(where: { $0.id == self.selectedRepositoryConnectionID }) {
+                    self.selectedRepositoryConnectionID = availableRepositories.first?.id
+                }
                 self.connectionLoadState = .loaded
                 if !self.githubOperationIsActive {
                     self.githubAuthorizationState = refreshedGitHubState
                 }
-                if !self.githubConnected {
+                if !self.repositoryConnected {
                     self.githubRepositories = []
                     self.npRepo = nil
                     self.repositoryLoadState = .idle
@@ -811,6 +874,7 @@ final class AppStore: ObservableObject {
                       self.activeServer?.id == server.id,
                       self.activeServer.flatMap({ self.serverURLIdentity($0.url) }) == canonicalURL else { return }
                 self.connections = []
+                self.selectedRepositoryConnectionID = nil
                 self.githubRepositories = []
                 self.npRepo = nil
                 self.connectionLoadState = .failed(error.localizedDescription)
@@ -827,7 +891,7 @@ final class AppStore: ObservableObject {
         repositoryTask?.cancel()
         repositoryRefreshGeneration += 1
         let generation = repositoryRefreshGeneration
-        guard githubConnected,
+        guard let connectionID = repositoryConnection?.id,
               let server = activeServer,
               let canonicalURL = serverURLIdentity(server.url) else {
             githubRepositories = []
@@ -839,7 +903,14 @@ final class AppStore: ObservableObject {
         repositoryLoadState = .loading
         repositoryTask = Task {
             do {
-                let remote = try await network.getGitHubRepositories(from: canonicalURL, apiToken: server.apiToken)
+                let remote = try await network.getRepositories(
+                    for: connectionID,
+                    from: canonicalURL,
+                    apiToken: server.apiToken
+                )
+                guard remote.allSatisfy({ $0.connectionID == connectionID }) else {
+                    throw GitHubFlowError.invalidRepositoryResponse
+                }
                 guard self.repositoryRefreshGeneration == generation,
                       self.activeServer?.id == server.id,
                       self.activeServer.flatMap({ self.serverURLIdentity($0.url) }) == canonicalURL else { return }
@@ -860,20 +931,39 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func selectRepositoryConnection(_ connectionID: String) {
+        guard repositoryConnections.contains(where: { $0.id == connectionID }) else { return }
+        guard selectedRepositoryConnectionID != connectionID else { return }
+        selectedRepositoryConnectionID = connectionID
+        repositoryTask?.cancel()
+        repositoryRefreshGeneration += 1
+        githubRepositories = []
+        npRepo = nil
+        repositoryLoadState = .idle
+    }
+
     func selectRepository(_ fullName: String) {
         guard repositoryLoadState == .loaded else { return }
-        guard githubRepositories.contains(where: { $0.fullName == fullName }) else { return }
+        guard let connectionID = selectedRepositoryConnectionID,
+              githubRepositories.contains(where: {
+                  $0.connectionID == connectionID && $0.fullName == fullName
+              }) else { return }
         npRepo = fullName
     }
 
-    func connectGitHub() {
+    func connectConnection(_ connectionID: String? = nil) {
         cancelGitHubAuthorization()
+        guard let connectionID = connectionID ?? selectedConnectionID else {
+            githubAuthorizationState = .failed("Choose a connection plugin first.")
+            return
+        }
         guard let server = activeServer,
               let canonicalURL = serverURLIdentity(server.url) else {
             githubAuthorizationState = .failed("Add and select a Monolith server first.")
             return
         }
-        let operation = beginGitHubOperation(for: server, canonicalURL: canonicalURL)
+        selectedConnectionID = connectionID
+        let operation = beginGitHubOperation(for: server, canonicalURL: canonicalURL, connectionID: connectionID)
         githubAuthorizationState = .authorizing
         githubAuthorizationTask = Task {
             defer {
@@ -882,19 +972,24 @@ final class AppStore: ObservableObject {
                 }
             }
             do {
-                let start = try await network.startGitHubOAuth(from: canonicalURL, apiToken: server.apiToken)
+                let start = try await network.startConnectionAuthorization(
+                    for: connectionID,
+                    from: canonicalURL,
+                    apiToken: server.apiToken
+                )
                 try Task.checkCancellation()
                 guard isCurrentGitHubOperation(operation) else { return }
-                try validateGitHubAuthorizationStart(start)
+                try validateAuthorizationStart(start, connectionID: connectionID)
                 let callback = try await githubAuthorization.authorize(
                     at: start.authorizationURL,
                     callbackScheme: "monolith"
                 )
                 try Task.checkCancellation()
                 guard isCurrentGitHubOperation(operation) else { return }
-                let callbackValues = try githubCallbackValues(callback)
+                let callbackValues = try connectionCallbackValues(callback, connectionID: connectionID)
                 guard callbackValues.state == start.state else { throw GitHubFlowError.stateMismatch }
-                let result = try await network.completeGitHubOAuth(
+                let result = try await network.completeConnectionAuthorization(
+                    for: connectionID,
                     from: canonicalURL,
                     apiToken: server.apiToken,
                     flowID: start.flowID,
@@ -903,7 +998,7 @@ final class AppStore: ObservableObject {
                 )
                 try Task.checkCancellation()
                 guard isCurrentGitHubOperation(operation) else { return }
-                try applyGitHubOAuthResult(result)
+                try applyAuthorizationResult(result, connectionID: connectionID)
             } catch is CancellationError {
                 if isCurrentGitHubOperation(operation) { githubAuthorizationState = .idle }
             } catch let error as URLError where error.code == .cancelled {
@@ -916,11 +1011,12 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func disconnectGitHub() {
+    func disconnectConnection(_ connectionID: String? = nil) {
+        guard let connectionID = connectionID ?? selectedConnectionID else { return }
         guard let server = activeServer,
               let canonicalURL = serverURLIdentity(server.url) else { return }
         cancelGitHubAuthorization()
-        let operation = beginGitHubOperation(for: server, canonicalURL: canonicalURL)
+        let operation = beginGitHubOperation(for: server, canonicalURL: canonicalURL, connectionID: connectionID)
         githubAuthorizationState = .disconnecting
         githubAuthorizationTask = Task {
             defer {
@@ -929,7 +1025,7 @@ final class AppStore: ObservableObject {
                 }
             }
             do {
-                try await network.disconnectGitHub(from: canonicalURL, apiToken: server.apiToken)
+                try await network.disconnectConnection(connectionID, from: canonicalURL, apiToken: server.apiToken)
                 try Task.checkCancellation()
                 guard isCurrentGitHubOperation(operation) else { return }
                 githubAuthorizationState = .idle
@@ -961,13 +1057,18 @@ final class AppStore: ObservableObject {
         }
     }
 
-    private func beginGitHubOperation(for server: LLMServer, canonicalURL: String) -> GitHubOperationIdentity {
+    private func beginGitHubOperation(
+        for server: LLMServer,
+        canonicalURL: String,
+        connectionID: String
+    ) -> GitHubOperationIdentity {
         githubOperationGeneration += 1
         return GitHubOperationIdentity(
             generation: githubOperationGeneration,
             serverID: server.id,
             serverURL: canonicalURL,
-            apiToken: server.apiToken
+            apiToken: server.apiToken,
+            connectionID: connectionID
         )
     }
 
@@ -976,36 +1077,52 @@ final class AppStore: ObservableObject {
             && activeServer?.id == operation.serverID
             && activeServer.flatMap({ serverURLIdentity($0.url) }) == operation.serverURL
             && activeServer?.apiToken == operation.apiToken
+            && selectedConnectionID == operation.connectionID
     }
 
-    private func githubState(from connections: [AppConnection]) throws -> GitHubAuthorizationState {
-        guard let github = connections.first(where: { $0.id == "github" }), github.connected else {
+    private func authorizationState(
+        from connections: [AppConnection],
+        connectionID: String?
+    ) throws -> GitHubAuthorizationState {
+        guard let connectionID,
+              let connection = connections.first(where: { $0.id == connectionID }),
+              connection.connected else {
             return .idle
         }
-        guard github.installationRequired == true else { return .idle }
-        guard let value = github.installationURL, let url = URL(string: value) else {
+        guard connection.requiresSetup else { return .idle }
+        guard let value = connection.resolvedSetupURL, let url = URL(string: value) else {
             throw GitHubFlowError.invalidInstallationURL
         }
-        return .installationRequired(try validatedGitHubInstallationURL(url))
+        return .installationRequired(try validatedSetupURL(url, connectionID: connectionID))
     }
 
-    private func applyGitHubOAuthResult(_ result: GitHubOAuthResult) throws {
-        let installationURL = result.installationRequired
-            ? try validatedGitHubInstallationURL(result.installationURL)
+    private func applyAuthorizationResult(_ result: ConnectionAuthorizationResult, connectionID: String) throws {
+        guard result.connectionID == nil || result.connectionID == connectionID else {
+            throw GitHubFlowError.invalidCallback
+        }
+        let installationURL = result.requiresSetup
+            ? try validatedSetupURL(result.resolvedSetupURL, connectionID: connectionID)
             : nil
-        let existing = connections.first(where: { $0.id == "github" })
+        let existing = connections.first(where: { $0.id == connectionID })
         let returnedAccount = result.account?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let account = returnedAccount.isEmpty ? (existing?.account ?? "") : returnedAccount
         let connection = AppConnection(
-            id: "github",
-            name: existing?.name ?? "GitHub",
-            desc: result.installationRequired
-                ? "Install the Monolith GitHub App to choose repositories."
-                : "Repository access was authorized from the Monolith app.",
+            id: connectionID,
+            name: existing?.name ?? connectionID,
+            desc: result.requiresSetup
+                ? "Complete setup to use this connection in Monolith."
+                : "Access was authorized from the Monolith app.",
             account: account,
             connected: true,
-            installationRequired: result.installationRequired,
-            installationURL: installationURL?.absoluteString
+            available: existing?.available,
+            unavailableReason: existing?.unavailableReason,
+            capabilities: existing?.capabilities,
+            authorization: existing?.authorization,
+            resourceKind: existing?.resourceKind,
+            installationRequired: result.requiresSetup,
+            installationURL: installationURL?.absoluteString,
+            setupRequired: result.requiresSetup,
+            setupURL: installationURL?.absoluteString
         )
 
         connectionTask?.cancel()
@@ -1018,10 +1135,13 @@ final class AppStore: ObservableObject {
         npRepo = nil
         repositoryLoadState = .idle
         connectionLoadState = .loaded
-        if let index = connections.firstIndex(where: { $0.id == "github" }) {
+        if let index = connections.firstIndex(where: { $0.id == connectionID }) {
             connections[index] = connection
         } else {
             connections.append(connection)
+        }
+        if connection.supports("repositories") && !connection.requiresSetup {
+            selectedRepositoryConnectionID = connectionID
         }
 
         if let installationURL {
@@ -1032,40 +1152,51 @@ final class AppStore: ObservableObject {
         }
     }
 
-    private func validatedGitHubInstallationURL(_ url: URL?) throws -> URL {
+    private func validatedSetupURL(_ url: URL?, connectionID: String) throws -> URL {
         guard let url,
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.scheme?.lowercased() == "https",
-              components.host?.lowercased() == "github.com",
+              components.host != nil,
               components.user == nil,
               components.password == nil,
               components.port == nil || components.port == 443,
-              components.query == nil,
-              components.fragment == nil,
-              components.percentEncodedPath.range(
-                of: #"^/apps/[A-Za-z0-9-]+/installations/new$"#,
-                options: .regularExpression
-              ) != nil else {
+              components.fragment == nil else {
             throw GitHubFlowError.invalidInstallationURL
+        }
+        if connectionID == "github" {
+            guard components.host?.lowercased() == "github.com",
+                  components.query == nil,
+                  components.percentEncodedPath.range(
+                    of: #"^/apps/[A-Za-z0-9-]+/installations/new$"#,
+                    options: .regularExpression
+                  ) != nil else {
+                throw GitHubFlowError.invalidInstallationURL
+            }
         }
         return url
     }
 
-    private func validateGitHubAuthorizationStart(_ start: GitHubOAuthStart) throws {
-        guard start.authorizationURL.scheme == "https",
-              start.authorizationURL.host == "github.com",
-              start.authorizationURL.path == "/login/oauth/authorize",
+    private func validateAuthorizationStart(_ start: ConnectionAuthorizationStart, connectionID: String) throws {
+        guard (start.connectionID == nil || start.connectionID == connectionID),
+              start.authorizationURL.scheme == "https",
+              start.authorizationURL.host != nil,
               start.redirectURI.scheme == "monolith",
               start.redirectURI.host == "oauth",
-              start.redirectURI.path == "/github" else {
+              start.redirectURI.path == "/\(connectionID)" else {
             throw GitHubFlowError.invalidAuthorizationURL
+        }
+        if connectionID == "github" {
+            guard start.authorizationURL.host == "github.com",
+                  start.authorizationURL.path == "/login/oauth/authorize" else {
+                throw GitHubFlowError.invalidAuthorizationURL
+            }
         }
     }
 
-    private func githubCallbackValues(_ callback: URL) throws -> (code: String, state: String) {
+    private func connectionCallbackValues(_ callback: URL, connectionID: String) throws -> (code: String, state: String) {
         guard callback.scheme == "monolith",
               callback.host == "oauth",
-              callback.path == "/github",
+              callback.path == "/\(connectionID)",
               let components = URLComponents(url: callback, resolvingAgainstBaseURL: false) else {
             throw GitHubFlowError.invalidCallback
         }
@@ -1096,17 +1227,44 @@ final class AppStore: ObservableObject {
         guard !name.isEmpty else { return }
         let desc = npDesc.trimmingCharacters(in: .whitespaces)
         let verifiedRepository: String?
+        let verifiedConnectionID: String?
+        let verifiedConnectionName: String?
+        let verifiedServerID: Int?
+        let verifiedServerURL: String?
         if let selected = npRepo,
-           githubConnected,
+           let connection = repositoryConnection,
            repositoryLoadState == .loaded,
-           githubRepositories.contains(where: { $0.fullName == selected }) {
+           githubRepositories.contains(where: {
+               $0.connectionID == connection.id && $0.fullName == selected
+           }) {
             verifiedRepository = selected
+            verifiedConnectionID = connection.id
+            verifiedConnectionName = connection.name
+            verifiedServerID = activeServer?.id
+            verifiedServerURL = activeServer.flatMap { serverURLIdentity($0.url) }
         } else {
             verifiedRepository = nil
+            verifiedConnectionID = nil
+            verifiedConnectionName = nil
+            verifiedServerID = nil
+            verifiedServerURL = nil
         }
-        let p = ChatProject(id: nextProjectId, name: name, desc: desc.isEmpty ? "No description yet." : desc, files: 0, updated: "just now", chatIds: [], repo: verifiedRepository)
+        let p = ChatProject(
+            id: nextProjectId,
+            name: name,
+            desc: desc.isEmpty ? "No description yet." : desc,
+            files: 0,
+            updated: "just now",
+            chatIds: [],
+            repo: verifiedRepository,
+            repositoryConnectionID: verifiedConnectionID,
+            repositoryConnectionName: verifiedConnectionName,
+            repositoryServerID: verifiedServerID,
+            repositoryServerURL: verifiedServerURL
+        )
         nextProjectId += 1
         projects.insert(p, at: 0)
+        persistProjects()
         newProjOpen = false
         activeProjectId = p.id
         screen = .project
@@ -1148,6 +1306,11 @@ final class AppStore: ObservableObject {
             )
             chats.insert(c, at: 0)
             activeChatId = chatId
+            if let projectIndex = projects.firstIndex(where: { $0.id == activeProjectId }),
+               !projects[projectIndex].chatIds.contains(chatId) {
+                projects[projectIndex].chatIds.append(chatId)
+                persistProjects()
+            }
         }
 
         let userMsg = ThreadMessage(role: .user, text: trimmed + (attach != nil ? "  📎" : ""))
@@ -1186,7 +1349,24 @@ final class AppStore: ObservableObject {
             ChatMessage(role: m.role == .user ? "user" : "assistant", content: m.role == .user ? m.text : m.blocks.plainText)
         }
 
-        let systemPrompt = PersonalizationStore().load().systemPrompt()
+        let personalization = PersonalizationStore().load().systemPrompt()
+        let projectContext = projects.first(where: { $0.chatIds.contains(chatId) }).map { project in
+            var lines = ["Project: \(project.name)", "Description: \(project.desc)"]
+            if project.repositoryServerID == activeServer?.id,
+               project.repositoryServerURL == activeServer.flatMap({ serverURLIdentity($0.url) }),
+               let repository = project.repo,
+               let connectionID = project.repositoryConnectionID {
+                lines.append("Linked repository: \(repository)")
+                lines.append("Connection plugin: \(connectionID)")
+                lines.append("The repository link is provider-scoped metadata; use only brokered tools made available by the gateway and never request provider credentials.")
+            } else if project.repo != nil {
+                lines.append("A repository is linked on a different Monolith server and is unavailable in this session.")
+            }
+            return lines.joined(separator: "\n")
+        }
+        let systemPrompt = [personalization, projectContext]
+            .compactMap { $0?.isEmpty == false ? $0 : nil }
+            .joined(separator: "\n\n")
         let base = activeServer.flatMap { serverURLIdentity($0.url) } ?? ""
         let model = activeModel.isEmpty ? (models.first?.name ?? "") : activeModel
 

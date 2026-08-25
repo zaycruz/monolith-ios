@@ -123,11 +123,55 @@ struct byollm_assistantOSTests {
                 .data(using: .utf8)
         )
 
-        let result = try JSONDecoder().decode(GitHubOAuthResult.self, from: data)
+        let result = try JSONDecoder().decode(ConnectionAuthorizationResult.self, from: data)
 
         #expect(result.account == "octocat")
-        #expect(!result.installationRequired)
-        #expect(result.installationURL == nil)
+        #expect(!result.requiresSetup)
+        #expect(result.resolvedSetupURL == nil)
+    }
+
+    @Test func connectionModels_decodeGenericPluginFields() throws {
+        let connectionData = try #require(
+            #"{"id":"linear","name":"Linear","description":"Issue access","account":"team","connected":true,"available":true,"capabilities":["authorization","repositories"],"authorization":"oauth","resource_kind":"repository","setup_required":true,"setup_url":"https://linear.app/setup"}"#
+                .data(using: .utf8)
+        )
+        let connection = try JSONDecoder().decode(AppConnection.self, from: connectionData)
+
+        #expect(connection.id == "linear")
+        #expect(connection.isAvailable)
+        #expect(connection.supports("repositories"))
+        #expect(connection.requiresSetup)
+        #expect(connection.resolvedSetupURL == "https://linear.app/setup")
+
+        let resultData = try #require(
+            #"{"connection_id":"linear","connected":true,"account":"team","setup_required":true,"setup_url":"https://linear.app/setup"}"#
+                .data(using: .utf8)
+        )
+        let result = try JSONDecoder().decode(ConnectionAuthorizationResult.self, from: resultData)
+
+        #expect(result.connectionID == "linear")
+        #expect(result.requiresSetup)
+        #expect(result.resolvedSetupURL?.absoluteString == "https://linear.app/setup")
+    }
+
+    @Test func connectionRepository_decodesAuthoritativeAndLegacyIDs() throws {
+        let genericData = try #require(
+            #"{"id":"repo_42","connection_id":"gitlab","full_name":"team/app","private":true,"default_branch":"main"}"#
+                .data(using: .utf8)
+        )
+        let legacyData = try #require(
+            #"{"id":42,"full_name":"team/legacy","private":false,"default_branch":"trunk"}"#
+                .data(using: .utf8)
+        )
+
+        let generic = try JSONDecoder().decode(ConnectionRepository.self, from: genericData)
+        let legacy = try JSONDecoder().decode(ConnectionRepository.self, from: legacyData)
+
+        #expect(generic.id == "repo_42")
+        #expect(generic.connectionID == "gitlab")
+        #expect(legacy.id == "42")
+        // The network route, not an untrusted payload, supplies legacy GitHub identity.
+        #expect(legacy.connectionID.isEmpty)
     }
 
     @Test func agentRuntime_supportsServerDefinedHarnesses() {
@@ -546,7 +590,7 @@ struct byollm_assistantOSTests {
             callback: try #require(URL(string: "monolith://oauth/github?code=temporary-code&state=expected-state"))
         )
         let network = StubNetworkClient(
-            githubOAuthResult: GitHubOAuthResult(
+            githubOAuthResult: ConnectionAuthorizationResult(
                 installationRequired: false,
                 installationURL: nil,
                 account: "octocat"
@@ -566,8 +610,8 @@ struct byollm_assistantOSTests {
         let connectionRequestsBeforeOAuth = network.connectionRequestCount
 
         store.openAddConn()
-        store.connectGitHub()
-        await waitUntil { store.githubConnected && store.githubAuthorizationState == .idle }
+        store.connectConnection("github")
+        await waitUntil { store.repositoryConnected && store.githubAuthorizationState == .idle }
 
         #expect(authorization.requestedURL?.host == "github.com")
         #expect(network.githubOAuthCompletions == [
@@ -575,8 +619,194 @@ struct byollm_assistantOSTests {
         ])
         #expect(network.connectionRequestCount == connectionRequestsBeforeOAuth)
         #expect(store.connections.first(where: { $0.id == "github" })?.account == "octocat")
-        #expect(store.githubConnected)
+        #expect(store.repositoryConnected)
         #expect(!store.addConnOpen)
+    }
+
+    @MainActor
+    @Test func appStore_routesUnknownConnectionPluginThroughGenericContract() async throws {
+        let suiteName = "byollm-assistantOS.tests.generic-connection-plugin"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let authorization = StubGitHubAuthorization(
+            callback: try #require(URL(string: "monolith://oauth/gitlab?code=temporary-code&state=expected-state"))
+        )
+        let network = StubNetworkClient(
+            connections: [AppConnection(
+                id: "gitlab",
+                name: "GitLab",
+                desc: "Repository access",
+                account: "",
+                connected: false,
+                available: true,
+                capabilities: ["authorization", "repositories", "disconnect"]
+            )],
+            githubOAuthStart: ConnectionAuthorizationStart(
+                flowID: "flow-id",
+                authorizationURL: try #require(URL(string: "https://gitlab.com/oauth/authorize?state=expected-state")),
+                state: "expected-state",
+                redirectURI: try #require(URL(string: "monolith://oauth/gitlab")),
+                connectionID: "gitlab"
+            ),
+            githubOAuthResult: ConnectionAuthorizationResult(
+                installationRequired: false,
+                installationURL: nil,
+                account: "team",
+                connectionID: "gitlab"
+            )
+        )
+        let store = AppStore(
+            defaults: defaults,
+            defaultServerConfiguration: DefaultServerConfiguration(
+                id: "test",
+                name: "Test",
+                url: "http://127.0.0.1:31000"
+            ),
+            network: network,
+            githubAuthorization: authorization
+        )
+        await waitUntil { store.connectionLoadState == .loaded }
+
+        store.openAddConn("gitlab")
+        store.connectConnection()
+        await waitUntil { store.repositoryConnected && store.githubAuthorizationState == .idle }
+
+        #expect(network.connectionAuthorizationRequests == ["gitlab"])
+        #expect(store.connections.first(where: { $0.id == "gitlab" })?.account == "team")
+        #expect(!store.addConnOpen)
+    }
+
+    @MainActor
+    @Test func appStore_persistsProjectRepositoryPluginAndServerProvenance() async throws {
+        let suiteName = "byollm-assistantOS.tests.project-repository-plugin"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let gitlab = AppConnection(
+            id: "gitlab",
+            name: "GitLab",
+            desc: "Repository access",
+            account: "team",
+            connected: true,
+            capabilities: ["repositories"]
+        )
+        let github = AppConnection(
+            id: "github",
+            name: "GitHub",
+            desc: "Repository access",
+            account: "octocat",
+            connected: true,
+            capabilities: ["repositories"]
+        )
+        let network = StubNetworkClient(
+            models: ["pi-agent"],
+            modelRuntime: .pi,
+            connections: [github, gitlab],
+            repositories: [ConnectionRepository(
+                id: "project-1",
+                connectionID: "gitlab",
+                fullName: "team/project",
+                isPrivate: true,
+                defaultBranch: "main"
+            )]
+        )
+        let server = DefaultServerConfiguration(
+            id: "test",
+            name: "Test",
+            url: "http://127.0.0.1:31000"
+        )
+        let store = AppStore(defaults: defaults, defaultServerConfiguration: server, network: network)
+        await waitUntil { store.connectionLoadState == .loaded }
+        await waitUntil { store.modelLoadState == .loaded }
+
+        store.openNewProject()
+        store.selectRepositoryConnection("gitlab")
+        store.refreshGitHubRepositories()
+        await waitUntil { store.repositoryLoadState == .loaded }
+        store.selectRepository("team/project")
+        store.npName = "Plugin project"
+        store.createProject()
+
+        let project = try #require(store.projects.first)
+        #expect(project.repo == "team/project")
+        #expect(project.repositoryConnectionID == "gitlab")
+        #expect(project.repositoryConnectionName == "GitLab")
+        #expect(project.repositoryServerID == store.activeServer?.id)
+        #expect(project.repositoryServerURL == "http://127.0.0.1:31000")
+
+        store.newChat(inProject: project.id)
+        store.send("Inspect the linked repository")
+        await waitUntil { network.capturedSystemPrompt != nil }
+        #expect(network.capturedSystemPrompt?.contains("Linked repository: team/project") == true)
+        #expect(network.capturedSystemPrompt?.contains("Connection plugin: gitlab") == true)
+        #expect(store.projects.first?.chatIds.count == 1)
+
+        store.beginAddingServer()
+        store.addName = "Other"
+        store.addUrl = "http://127.0.0.1:32000"
+        store.saveServer()
+        let otherServerID = try #require(store.servers.first(where: { !$0.active })?.id)
+        store.selectServer(otherServerID)
+        await waitUntil { store.modelLoadState == .loaded }
+        store.send("Try from another server")
+        await waitUntil { network.capturedSystemPrompts.count == 2 }
+        #expect(network.capturedSystemPrompts.last?.contains("different Monolith server") == true)
+        #expect(network.capturedSystemPrompts.last?.contains("Linked repository: team/project") == false)
+
+        let reloaded = AppStore(defaults: defaults, defaultServerConfiguration: server, network: network)
+        let persisted = try #require(reloaded.projects.first)
+        #expect(persisted.repo == "team/project")
+        #expect(persisted.repositoryConnectionID == "gitlab")
+        #expect(persisted.repositoryServerID == project.repositoryServerID)
+        #expect(persisted.repositoryServerURL == project.repositoryServerURL)
+    }
+
+    @MainActor
+    @Test func appStore_rejectsRepositoryFromDifferentPlugin() async throws {
+        let suiteName = "byollm-assistantOS.tests.project-repository-plugin-mismatch"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let network = StubNetworkClient(
+            connections: [AppConnection(
+                id: "gitlab",
+                name: "GitLab",
+                desc: "Repository access",
+                account: "team",
+                connected: true,
+                capabilities: ["repositories"]
+            )],
+            repositories: [ConnectionRepository(
+                id: "wrong-provider",
+                connectionID: "github",
+                fullName: "other/project",
+                isPrivate: false,
+                defaultBranch: "main"
+            )]
+        )
+        let store = AppStore(
+            defaults: defaults,
+            defaultServerConfiguration: DefaultServerConfiguration(
+                id: "test",
+                name: "Test",
+                url: "http://127.0.0.1:31000"
+            ),
+            network: network
+        )
+        await waitUntil { store.connectionLoadState == .loaded }
+
+        store.refreshGitHubRepositories()
+        await waitUntil {
+            if case .failed = store.repositoryLoadState { return true }
+            return false
+        }
+        store.selectRepository("other/project")
+        store.npName = "Rejected link"
+        store.createProject()
+
+        #expect(store.projects.first?.repo == nil)
+        #expect(store.projects.first?.repositoryConnectionID == nil)
     }
 
     @MainActor
@@ -586,7 +816,7 @@ struct byollm_assistantOSTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let network = StubNetworkClient(
-            githubOAuthResult: GitHubOAuthResult(
+            githubOAuthResult: ConnectionAuthorizationResult(
                 installationRequired: true,
                 installationURL: URL(string: "https://github.com/apps/monolith/installations/new")!,
                 account: "octocat"
@@ -607,7 +837,7 @@ struct byollm_assistantOSTests {
         await waitUntil { store.connectionLoadState == .loaded }
         let connectionRequestsBeforeOAuth = network.connectionRequestCount
 
-        store.connectGitHub()
+        store.connectConnection("github")
         await waitUntil {
             if case .installationRequired = store.githubAuthorizationState { return true }
             return false
@@ -618,7 +848,7 @@ struct byollm_assistantOSTests {
         #expect(github?.connected == true)
         #expect(github?.account == "octocat")
         #expect(github?.installationRequired == true)
-        #expect(!store.githubConnected)
+        #expect(!store.repositoryConnected)
     }
 
     @MainActor
@@ -684,7 +914,7 @@ struct byollm_assistantOSTests {
             githubAuthorization: authorization
         )
 
-        store.connectGitHub()
+        store.connectConnection("github")
         await waitUntil {
             if case .failed = store.githubAuthorizationState { return true }
             return false
@@ -700,7 +930,7 @@ struct byollm_assistantOSTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let network = StubNetworkClient(
-            githubOAuthResult: GitHubOAuthResult(
+            githubOAuthResult: ConnectionAuthorizationResult(
                 installationRequired: true,
                 installationURL: URL(string: "https://evil.example/apps/monolith/installations/new")!
             )
@@ -719,14 +949,14 @@ struct byollm_assistantOSTests {
         )
 
         store.openAddConn()
-        store.connectGitHub()
+        store.connectConnection("github")
         await waitUntil {
             if case .failed = store.githubAuthorizationState { return true }
             return false
         }
 
         #expect(store.addConnOpen)
-        #expect(!store.githubConnected)
+        #expect(!store.repositoryConnected)
     }
 
     @MainActor
@@ -736,7 +966,7 @@ struct byollm_assistantOSTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let network = StubNetworkClient(
-            githubOAuthResult: GitHubOAuthResult(installationRequired: true, installationURL: nil)
+            githubOAuthResult: ConnectionAuthorizationResult(installationRequired: true, installationURL: nil)
         )
         let store = AppStore(
             defaults: defaults,
@@ -752,14 +982,14 @@ struct byollm_assistantOSTests {
         )
 
         store.openAddConn()
-        store.connectGitHub()
+        store.connectConnection("github")
         await waitUntil {
             if case .failed = store.githubAuthorizationState { return true }
             return false
         }
 
         #expect(store.addConnOpen)
-        #expect(!store.githubConnected)
+        #expect(!store.repositoryConnected)
     }
 
     @MainActor
@@ -804,7 +1034,7 @@ struct byollm_assistantOSTests {
 
         #expect(store.githubAuthorizationState == .idle)
         #expect(store.npRepo == nil)
-        #expect(!store.githubConnected)
+        #expect(!store.repositoryConnected)
     }
 
     @MainActor
@@ -833,11 +1063,11 @@ struct byollm_assistantOSTests {
         )
 
         store.openAddConn()
-        store.connectGitHub()
+        store.connectConnection("github")
         await waitUntil { authorization.pendingCount == 1 }
         store.dismissAddConnection()
         store.openAddConn()
-        store.connectGitHub()
+        store.connectConnection("github")
         await waitUntil { authorization.pendingCount == 2 }
 
         authorization.resume(
@@ -882,7 +1112,7 @@ struct byollm_assistantOSTests {
         store.saveServer()
         let otherServerID = try #require(store.servers.first(where: { !$0.active })?.id)
 
-        store.connectGitHub()
+        store.connectConnection("github")
         await waitUntil { authorization.pendingCount == 1 }
         store.selectServer(otherServerID)
         authorization.resume(
@@ -916,15 +1146,18 @@ private final class StubNetworkClient: MonolithNetworkClient, @unchecked Sendabl
     private var connectionValues: [AppConnection]
     private let repositories: [GitHubRepository]
     private let repositoryDelayNanoseconds: UInt64
-    private let githubOAuthStart: GitHubOAuthStart
-    private let githubOAuthResult: GitHubOAuthResult
+    private let githubOAuthStart: ConnectionAuthorizationStart
+    private let githubOAuthResult: ConnectionAuthorizationResult
     private let lock = NSLock()
     private var eventHandler: (@Sendable (ChatStreamEvent) async -> Void)?
     private var capturedGitHubCompletionValues: [CapturedGitHubCompletion] = []
+    private var connectionAuthorizationRequestValues: [String] = []
     private var connectionRequestValue = 0
     private var repositoryRequestValue = 0
+    private var capturedSystemPromptValues: [String] = []
     private(set) var capturedRuntime: String?
     private(set) var capturedReasoningEffort: String?
+    private(set) var capturedSystemPrompt: String?
 
     init(
         models: [String] = [],
@@ -936,8 +1169,8 @@ private final class StubNetworkClient: MonolithNetworkClient, @unchecked Sendabl
         connections: [AppConnection] = [],
         repositories: [GitHubRepository] = [],
         repositoryDelayNanoseconds: UInt64 = 0,
-        githubOAuthStart: GitHubOAuthStart? = nil,
-        githubOAuthResult: GitHubOAuthResult = GitHubOAuthResult(
+        githubOAuthStart: ConnectionAuthorizationStart? = nil,
+        githubOAuthResult: ConnectionAuthorizationResult = ConnectionAuthorizationResult(
             installationRequired: false,
             installationURL: nil
         )
@@ -949,7 +1182,7 @@ private final class StubNetworkClient: MonolithNetworkClient, @unchecked Sendabl
         self.connectionValues = connections
         self.repositories = repositories
         self.repositoryDelayNanoseconds = repositoryDelayNanoseconds
-        self.githubOAuthStart = githubOAuthStart ?? GitHubOAuthStart(
+        self.githubOAuthStart = githubOAuthStart ?? ConnectionAuthorizationStart(
             flowID: "flow-id",
             authorizationURL: URL(string: "https://github.com/login/oauth/authorize?state=expected-state")!,
             state: "expected-state",
@@ -970,8 +1203,16 @@ private final class StubNetworkClient: MonolithNetworkClient, @unchecked Sendabl
         lock.withLock { connectionRequestValue }
     }
 
+    var connectionAuthorizationRequests: [String] {
+        lock.withLock { connectionAuthorizationRequestValues }
+    }
+
     var repositoryRequestCount: Int {
         lock.withLock { repositoryRequestValue }
+    }
+
+    var capturedSystemPrompts: [String] {
+        lock.withLock { capturedSystemPromptValues }
     }
 
     func setConnections(_ connections: [AppConnection]) {
@@ -1003,7 +1244,11 @@ private final class StubNetworkClient: MonolithNetworkClient, @unchecked Sendabl
         }
     }
 
-    func getGitHubRepositories(from serverAddress: String, apiToken: String?) async throws -> [GitHubRepository] {
+    func getRepositories(
+        for connectionID: String,
+        from serverAddress: String,
+        apiToken: String?
+    ) async throws -> [ConnectionRepository] {
         lock.withLock { repositoryRequestValue += 1 }
         if repositoryDelayNanoseconds > 0 {
             try await Task.sleep(nanoseconds: repositoryDelayNanoseconds)
@@ -1011,17 +1256,23 @@ private final class StubNetworkClient: MonolithNetworkClient, @unchecked Sendabl
         return repositories
     }
 
-    func startGitHubOAuth(from serverAddress: String, apiToken: String?) async throws -> GitHubOAuthStart {
-        githubOAuthStart
+    func startConnectionAuthorization(
+        for connectionID: String,
+        from serverAddress: String,
+        apiToken: String?
+    ) async throws -> ConnectionAuthorizationStart {
+        lock.withLock { connectionAuthorizationRequestValues.append(connectionID) }
+        return githubOAuthStart
     }
 
-    func completeGitHubOAuth(
+    func completeConnectionAuthorization(
+        for connectionID: String,
         from serverAddress: String,
         apiToken: String?,
         flowID: String,
         state: String,
         code: String
-    ) async throws -> GitHubOAuthResult {
+    ) async throws -> ConnectionAuthorizationResult {
         lock.withLock {
             capturedGitHubCompletionValues.append(
                 CapturedGitHubCompletion(flowID: flowID, state: state, code: code)
@@ -1030,7 +1281,11 @@ private final class StubNetworkClient: MonolithNetworkClient, @unchecked Sendabl
         return githubOAuthResult
     }
 
-    func disconnectGitHub(from serverAddress: String, apiToken: String?) async throws {}
+    func disconnectConnection(
+        _ connectionID: String,
+        from serverAddress: String,
+        apiToken: String?
+    ) async throws {}
 
     func sendChatMessageStreaming(
         to serverAddress: String,
@@ -1046,6 +1301,8 @@ private final class StubNetworkClient: MonolithNetworkClient, @unchecked Sendabl
         lock.withLock {
             capturedRuntime = runtime
             capturedReasoningEffort = reasoningEffort
+            capturedSystemPrompt = systemPrompt
+            capturedSystemPromptValues.append(systemPrompt ?? "")
             eventHandler = onEvent
         }
         if holdsStreamOpen {

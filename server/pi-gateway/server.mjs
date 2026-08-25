@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { accessSync, constants } from "node:fs";
 import http from "node:http";
 import { delimiter, isAbsolute, resolve } from "node:path";
@@ -8,9 +8,14 @@ import { pathToFileURL } from "node:url";
 
 import { OhMyPiAdapter } from "./adapters/oh-my-pi-adapter.mjs";
 import { PiAdapter } from "./adapters/pi-adapter.mjs";
-import { GitHubConnection, GitHubConnectionError } from "./github-connection.mjs";
-import { GitHubCredentialStore } from "./github-credential-store.mjs";
-import { GitHubOAuthBroker, GitHubOAuthError } from "./github-oauth.mjs";
+import {
+  ConnectionPluginError,
+  ConnectionRouter,
+  loadConnectionModules,
+  normalizeAuthorizationResult,
+  normalizeAuthorizationStart,
+  normalizeRepositories,
+} from "./connection-router.mjs";
 import { HarnessRouter, loadHarnessModules } from "./harness-router.mjs";
 import { SessionRegistry } from "./session-registry.mjs";
 export { stableSessionId } from "./session-id.mjs";
@@ -24,17 +29,17 @@ const OMP_BUILTIN_TOOLS = new Set([
   "read", "bash", "edit", "write", "grep", "glob", "lsp", "python", "notebook",
   "inspect_image", "browser", "computer", "task", "todo", "web_search", "ask",
 ]);
-const GITHUB_CALLBACK_URI = "monolith://oauth/github";
 const SENSITIVE_GATEWAY_ENVIRONMENT_KEYS = [
   "PI_GATEWAY_TOKEN", "MONOLITH_GATEWAY_TOKEN", "GITHUB_TOKEN", "GH_TOKEN",
   "GITHUB_OAUTH_CLIENT_SECRET", "GITHUB_CREDENTIAL_ENCRYPTION_KEY",
+  "MONOLITH_CONNECTION_GITHUB_CLIENT_SECRET", "MONOLITH_CONNECTION_GITHUB_ENCRYPTION_KEY",
 ];
-const PRIVATE_GITHUB_PATHS = new Set([
-  "/v1/connections",
-  "/v1/github/repositories",
-  "/v1/github/oauth/start",
-  "/v1/github/oauth/complete",
-  "/v1/github/connection",
+const DEFAULT_CONNECTION_MODULES = [new URL("./connections/github.mjs", import.meta.url).href];
+const LEGACY_GITHUB_PATHS = new Map([
+  ["/v1/github/repositories", { id: "github", action: "repositories" }],
+  ["/v1/github/oauth/start", { id: "github", action: "authorization/start" }],
+  ["/v1/github/oauth/complete", { id: "github", action: "authorization/complete" }],
+  ["/v1/github/connection", { id: "github", action: null }],
 ]);
 
 class GatewayError extends Error {
@@ -305,10 +310,6 @@ function validateOmpTools(tools) {
   return tools;
 }
 
-function firstNonblank(...values) {
-  return values.map((value) => value?.trim()).find(Boolean) ?? null;
-}
-
 function runtimeEnvironment(env) {
   const sanitized = { ...env };
   for (const key of SENSITIVE_GATEWAY_ENVIRONMENT_KEYS) {
@@ -319,6 +320,63 @@ function runtimeEnvironment(env) {
 
 function scrubSensitiveProcessEnvironment() {
   for (const key of SENSITIVE_GATEWAY_ENVIRONMENT_KEYS) delete process.env[key];
+}
+
+function scrubPluginEnvironment(keys, environment) {
+  for (const key of keys) {
+    delete environment[key];
+    delete process.env[key];
+  }
+}
+
+function connectionRoute(path) {
+  const legacy = LEGACY_GITHUB_PATHS.get(path);
+  if (legacy) return legacy;
+  const match = path.match(/^\/v1\/connections\/([A-Za-z0-9][A-Za-z0-9._:-]*)(?:\/(repositories|authorization\/start|authorization\/complete))?$/);
+  return match ? { id: match[1], action: match[2] ?? null } : null;
+}
+
+async function withConnectionRequest(req, res, timeoutMs, operation) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abort = () => controller.abort();
+  const close = () => {
+    if (req.aborted || !req.complete) abort();
+  };
+  const responseClose = () => {
+    if (!res.writableEnded) abort();
+  };
+  req.once("aborted", abort);
+  req.once("close", close);
+  res.once("close", responseClose);
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  timer.unref?.();
+  try {
+    return await Promise.race([
+      operation(controller.signal),
+      new Promise((_, reject) => controller.signal.addEventListener("abort", () => {
+        reject(new GatewayError(
+          timedOut ? 504 : 499,
+          timedOut ? "connection operation timed out" : "connection operation canceled",
+          timedOut ? "connection_timeout" : "connection_cancelled",
+        ));
+      }, { once: true })),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    req.off("aborted", abort);
+    req.off("close", close);
+    res.off("close", responseClose);
+  }
+}
+
+function isPrivateConnectionPath(path) {
+  return path === "/v1/connections"
+    || path.startsWith("/v1/connections/")
+    || LEGACY_GITHUB_PATHS.has(path);
 }
 
 function resolveExecutable(command, env, cwd) {
@@ -419,19 +477,12 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
     maxSseBufferBytes: boundedNumber(env.MONOLITH_SSE_BUFFER_MAX_BYTES, 1024 * 1024, 16_384, 16 * 1024 * 1024),
     harnessLoadTimeoutMs: boundedNumber(env.MONOLITH_HARNESS_LOAD_TIMEOUT_MS, 5_000, 100, 60_000),
     harnessModules: (env.MONOLITH_HARNESS_MODULES ?? "").split(",").map((value) => value.trim()).filter(Boolean),
-    github: {
-      principalId: firstNonblank(env.GITHUB_PRINCIPAL_ID) ?? "single-user",
-      timeoutMs: boundedNumber(env.MONOLITH_GITHUB_TIMEOUT_MS, 10_000, 100, 60_000),
-      oauth: {
-        clientId: firstNonblank(env.GITHUB_OAUTH_CLIENT_ID),
-        clientSecret: firstNonblank(env.GITHUB_OAUTH_CLIENT_SECRET),
-        appSlug: firstNonblank(env.GITHUB_APP_SLUG),
-        redirectURI: GITHUB_CALLBACK_URI,
-        scopes: commaSeparated(env.GITHUB_OAUTH_SCOPES ?? ""),
-        credentialPath: env.GITHUB_CREDENTIAL_STORE ?? `${sessionRoot}/github-credentials.enc`,
-        encryptionKey: firstNonblank(env.GITHUB_CREDENTIAL_ENCRYPTION_KEY),
-      },
-    },
+    connectionLoadTimeoutMs: boundedNumber(env.MONOLITH_CONNECTION_LOAD_TIMEOUT_MS, 5_000, 100, 60_000),
+    connectionOperationTimeoutMs: boundedNumber(env.MONOLITH_CONNECTION_OPERATION_TIMEOUT_MS, 30_000, 100, 120_000),
+    connectionModules: [
+      ...DEFAULT_CONNECTION_MODULES,
+      ...(env.MONOLITH_CONNECTION_MODULES ?? "").split(",").map((value) => value.trim()).filter(Boolean),
+    ],
     runtimes: {
       pi: runtimeConfig({
         id: "pi",
@@ -481,28 +532,10 @@ export function createGateway(config, dependencies = {}) {
     retentionMs: config.registryRetentionMs,
     maxBytes: config.registryMaxBytes,
   });
-  const githubCredentialStore = dependencies.githubCredentialStore ?? new GitHubCredentialStore({
-    path: config.github?.oauth?.credentialPath,
-    key: config.github?.oauth?.encryptionKey,
-  });
-  const githubOAuth = dependencies.githubOAuth ?? new GitHubOAuthBroker({
-    clientId: config.github?.oauth?.clientId,
-    clientSecret: config.github?.oauth?.clientSecret,
-    appSlug: config.github?.oauth?.appSlug,
-    redirectURI: config.github?.oauth?.redirectURI,
-    scopes: config.github?.oauth?.scopes,
-    credentialStore: githubCredentialStore,
-    timeoutMs: config.github?.timeoutMs,
-  });
-  const githubPrincipal = createHash("sha256")
-    .update(config.github?.principalId ?? "single-user")
-    .digest("hex");
-  const githubConnectionFor = async (signal = null) => dependencies.githubConnection ?? new GitHubConnection({
-    token: await githubOAuth.accessToken(githubPrincipal),
-    appSlug: config.github?.oauth?.appSlug,
-    timeoutMs: config.github?.timeoutMs,
-    signal,
-  });
+  const connectionRouter = dependencies.connectionRouter
+    ?? new ConnectionRouter(dependencies.connections ?? [], {
+      statusTimeoutMs: config.connectionOperationTimeoutMs,
+    });
   const adapters = dependencies.adapters ?? {
     pi: config.runtimes.pi.available ? new PiAdapter(config.runtimes.pi, dependencies) : null,
     "oh-my-pi": config.runtimes["oh-my-pi"].available
@@ -523,7 +556,7 @@ export function createGateway(config, dependencies = {}) {
 
   const server = http.createServer(async (req, res) => {
     const path = new URL(req.url ?? "/", "http://gateway.invalid").pathname;
-    if (PRIVATE_GITHUB_PATHS.has(path)) res.setHeader("cache-control", "no-store");
+    if (isPrivateConnectionPath(path)) res.setHeader("cache-control", "no-store");
     let selectedRuntime;
     let releaseSession = () => {};
 
@@ -562,12 +595,14 @@ export function createGateway(config, dependencies = {}) {
       if (req.method === "GET" && path === "/v1/connections") {
         sendJson(res, 200, {
           object: "list",
-          data: [await (await githubConnectionFor()).status()],
+          data: await connectionRouter.descriptions(),
         });
         return;
       }
 
-      if (req.method === "GET" && path === "/v1/github/repositories") {
+      const selectedConnection = connectionRoute(path);
+      if (req.method === "GET" && selectedConnection?.action === "repositories") {
+        const { plugin } = connectionRouter.require(selectedConnection.id, "repositories");
         const controller = new AbortController();
         const abort = () => {
           if (!res.writableEnded) controller.abort();
@@ -579,8 +614,10 @@ export function createGateway(config, dependencies = {}) {
         req.once("close", close);
         res.once("close", abort);
         try {
-          const connection = await githubConnectionFor(controller.signal);
-          const data = await connection.repositories({ signal: controller.signal });
+          const data = normalizeRepositories(
+            selectedConnection.id,
+            await plugin.repositories({ signal: controller.signal }),
+          );
           if (!controller.signal.aborted) sendJson(res, 200, { object: "list", data });
         } finally {
           req.off("aborted", abort);
@@ -590,26 +627,41 @@ export function createGateway(config, dependencies = {}) {
         return;
       }
 
-      if (req.method === "POST" && path === "/v1/github/oauth/start") {
+      if (req.method === "POST" && selectedConnection?.action === "authorization/start") {
+        const { plugin } = connectionRouter.require(selectedConnection.id, "authorization");
         requireJsonContentType(req);
         await readJsonObject(req, config.maxBodyBytes);
-        sendJson(res, 200, await githubOAuth.start(githubPrincipal));
+        const result = await withConnectionRequest(req, res, config.connectionOperationTimeoutMs, (signal) => (
+          plugin.startAuthorization({ signal })
+        ));
+        sendJson(res, 200, normalizeAuthorizationStart(
+          selectedConnection.id,
+          result,
+        ));
         return;
       }
 
-      if (req.method === "POST" && path === "/v1/github/oauth/complete") {
+      if (req.method === "POST" && selectedConnection?.action === "authorization/complete") {
+        const { plugin } = connectionRouter.require(selectedConnection.id, "authorization");
         requireJsonContentType(req);
         const body = await readJsonObject(req, config.maxBodyBytes);
-        sendJson(res, 200, await githubOAuth.complete(githubPrincipal, {
-          flowId: body.flow_id,
-          state: body.state,
-          code: body.code,
-        }));
+        const result = await withConnectionRequest(req, res, config.connectionOperationTimeoutMs, (signal) => (
+          plugin.completeAuthorization({
+            flowId: body.flow_id,
+            state: body.state,
+            code: body.code,
+            signal,
+          })
+        ));
+        sendJson(res, 200, normalizeAuthorizationResult(selectedConnection.id, result));
         return;
       }
 
-      if (req.method === "DELETE" && path === "/v1/github/connection") {
-        await githubOAuth.disconnect(githubPrincipal);
+      if (req.method === "DELETE" && selectedConnection?.action === null) {
+        const { plugin } = connectionRouter.require(selectedConnection.id, "disconnect");
+        await withConnectionRequest(req, res, config.connectionOperationTimeoutMs, (signal) => (
+          plugin.disconnect({ signal })
+        ));
         res.writeHead(204);
         res.end();
         return;
@@ -775,17 +827,16 @@ export function createGateway(config, dependencies = {}) {
         usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
       });
     } catch (error) {
-      const knownError = error instanceof GatewayError
-        || error instanceof GitHubConnectionError
-        || error instanceof GitHubOAuthError;
+      const knownError = error instanceof GatewayError || error instanceof ConnectionPluginError;
       const statusCode = knownError ? error.statusCode : 500;
       const message = knownError
         ? error.message
         : `${router.get(selectedRuntime)?.config.displayName ?? "Agent"} request failed`;
       const type = knownError ? error.type : "runtime_error";
       const runtime = error instanceof GatewayError ? error.runtime : selectedRuntime;
+      const connection = error instanceof ConnectionPluginError ? error.connection : undefined;
       if (!res.headersSent) {
-        sendJson(res, statusCode, { error: { message, type, runtime } });
+        sendJson(res, statusCode, { error: { message, type, runtime, connection } });
       } else if (!res.destroyed) {
         writeSse(res, completionChunk({
           id: `chatcmpl-${randomUUID()}`,
@@ -801,29 +852,46 @@ export function createGateway(config, dependencies = {}) {
     }
   });
 
-  const close = () => {
+  const close = async () => {
     for (const pool of Object.values(pools)) pool.close();
+    await connectionRouter.close();
   };
-  return { server, pools, router, close };
+  return { server, pools, router, connectionRouter, close };
 }
 
-export async function startGateway(config = loadConfig()) {
+export async function startGateway(providedConfig) {
+  const moduleEnvironment = { ...process.env };
+  const config = providedConfig ?? loadConfig(moduleEnvironment);
   if (!isLoopbackHost(config.host) && !config.authToken) {
     throw new Error("PI_GATEWAY_TOKEN is required when PI_GATEWAY_HOST is not loopback");
+  }
+  const connections = await loadConnectionModules(config.connectionModules, {
+    config,
+    cwd: process.cwd(),
+    env: moduleEnvironment,
+  }, { timeoutMs: config.connectionLoadTimeoutMs, logger: console });
+  if (connections.errors.length) {
+    throw new Error(`Refusing to start with failed connection plugins: ${connections.errors.map(({ specifier }) => specifier).join(", ")}`);
+  }
+  const sensitiveKeys = [...SENSITIVE_GATEWAY_ENVIRONMENT_KEYS, ...connections.sensitiveEnvironmentKeys];
+  scrubPluginEnvironment(sensitiveKeys, moduleEnvironment);
+  for (const runtime of Object.values(config.runtimes)) {
+    scrubPluginEnvironment(sensitiveKeys, runtime.environment);
   }
   const harnesses = await loadHarnessModules(config.harnessModules, {
     config,
     cwd: process.cwd(),
-    env: process.env,
+    env: moduleEnvironment,
   }, { timeoutMs: config.harnessLoadTimeoutMs, logger: console });
-  const gateway = createGateway(config, { harnesses });
+  const gateway = createGateway(config, { harnesses, connections: connections.registrations });
   gateway.server.listen(config.port, config.host, () => {
     console.log(`Monolith gateway listening on ${config.host}:${config.port}`);
   });
 
-  const shutdown = () => {
-    gateway.server.close(() => process.exit(0));
-    gateway.close();
+  const shutdown = async () => {
+    const drained = new Promise((resolve) => gateway.server.close(resolve));
+    await Promise.allSettled([drained, gateway.close()]);
+    process.exit(0);
   };
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);

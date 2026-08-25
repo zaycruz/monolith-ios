@@ -1,14 +1,14 @@
+import { ConnectionPluginError } from "./connection-router.mjs";
+
 const API_ROOT = "https://api.github.com";
 const API_VERSION = "2022-11-28";
 const REPOSITORIES_PER_PAGE = 100;
 const MAX_REPOSITORIES = 500;
 const MAX_REPOSITORY_PAGES = Math.ceil(MAX_REPOSITORIES / REPOSITORIES_PER_PAGE);
 
-export class GitHubConnectionError extends Error {
+export class GitHubConnectionError extends ConnectionPluginError {
   constructor(statusCode, message, type = "github_error") {
-    super(message);
-    this.statusCode = statusCode;
-    this.type = type;
+    super(statusCode, message, type, "github");
   }
 }
 

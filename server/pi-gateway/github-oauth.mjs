@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
+import { ConnectionPluginError } from "./connection-router.mjs";
 import { GitHubConnection } from "./github-connection.mjs";
 
 const GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
@@ -8,11 +9,9 @@ const GITHUB_API_ROOT = "https://api.github.com";
 const API_VERSION = "2022-11-28";
 const CALLBACK_CODE = /^[A-Za-z0-9_-]{1,512}$/;
 
-export class GitHubOAuthError extends Error {
+export class GitHubOAuthError extends ConnectionPluginError {
   constructor(statusCode, message, type = "github_oauth_error") {
-    super(message);
-    this.statusCode = statusCode;
-    this.type = type;
+    super(statusCode, message, type, "github");
   }
 }
 
@@ -122,8 +121,9 @@ export class GitHubOAuthBroker {
     });
   }
 
-  async complete(principal, { flowId, state, code } = {}) {
+  async complete(principal, { flowId, state, code, signal = null } = {}) {
     this.requireConfigured();
+    signal?.throwIfAborted();
     if (typeof flowId !== "string" || typeof state !== "string"
         || typeof code !== "string" || !CALLBACK_CODE.test(code)) {
       throw new GitHubOAuthError(400, "The GitHub OAuth callback is invalid.", "invalid_oauth_callback");
@@ -143,25 +143,29 @@ export class GitHubOAuthBroker {
       let token;
       let stored = false;
       try {
+        signal?.throwIfAborted();
         token = await this.exchange({
           client_id: this.clientId,
           client_secret: this.clientSecret,
           code,
           redirect_uri: this.redirectURI,
           code_verifier: flow.codeVerifier,
-        });
+        }, { signal });
         const connection = new GitHubConnection({
           token: token.access_token,
           appSlug: this.appSlug,
           fetchFn: this.fetchFn,
           timeoutMs: this.timeoutMs,
+          signal,
         });
         const [identity, installation] = await Promise.all([
           connection.identity(),
           connection.installationState(),
         ]);
+        signal?.throwIfAborted();
         this.assertCurrent(flow, principal);
         const result = this.connectionResult(identity, installation);
+        signal?.throwIfAborted();
         await this.credentialStore.set(principal, this.credential(token));
         stored = true;
         return result;
@@ -215,25 +219,28 @@ export class GitHubOAuthBroker {
     }
   }
 
-  async disconnect(principal) {
+  async disconnect(principal, { signal = null } = {}) {
     if (!this.configured) return;
+    signal?.throwIfAborted();
     this.invalidateConnection(principal);
     return this.serialized(principal, async () => {
       const credential = await this.credentialStore.get(principal);
       try {
-        if (credential?.accessToken) await this.revoke(credential.accessToken);
+        signal?.throwIfAborted();
+        if (credential?.accessToken) await this.revoke(credential.accessToken, { signal });
       } finally {
+        signal?.throwIfAborted();
         await this.credentialStore.delete(principal);
       }
     });
   }
 
-  async exchange(parameters, { refresh = false } = {}) {
+  async exchange(parameters, { refresh = false, signal = null } = {}) {
     const response = await this.fetchWithTimeout(GITHUB_TOKEN_URL, {
       method: "POST",
       headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams(parameters),
-    });
+    }, { signal });
     const payload = await response.json().catch(() => null);
     if (!response.ok || typeof payload?.access_token !== "string" || !payload.access_token.trim()) {
       const invalidRefresh = refresh
@@ -249,7 +256,7 @@ export class GitHubOAuthBroker {
     return payload;
   }
 
-  async revoke(accessToken) {
+  async revoke(accessToken, { signal = null } = {}) {
     const response = await this.fetchWithTimeout(
       `${GITHUB_API_ROOT}/applications/${encodeURIComponent(this.clientId)}/token`,
       {
@@ -262,6 +269,7 @@ export class GitHubOAuthBroker {
         },
         body: JSON.stringify({ access_token: accessToken }),
       },
+      { signal },
     );
     if (!response.ok && response.status !== 404) {
       throw new GitHubOAuthError(502, "GitHub could not revoke this connection.", "oauth_revoke_failed");
@@ -342,16 +350,21 @@ export class GitHubOAuthBroker {
     return result;
   }
 
-  async fetchWithTimeout(url, options) {
+  async fetchWithTimeout(url, options, { signal = null } = {}) {
     const controller = new AbortController();
+    const abort = () => controller.abort(signal?.reason);
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     timer.unref?.();
     try {
       return await this.fetchFn(url, { ...options, signal: controller.signal });
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) throw error;
       throw new GitHubOAuthError(502, "The Monolith server could not reach GitHub.", "oauth_upstream_error");
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
     }
   }
 

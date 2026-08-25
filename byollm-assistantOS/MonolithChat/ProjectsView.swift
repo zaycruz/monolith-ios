@@ -24,50 +24,70 @@ struct ProjectsView: View {
             ))
 
             ScrollView {
-                VStack(spacing: 10) {
-                    ForEach(store.projects) { p in
-                        Button(action: { store.openProject(p.id) }) {
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack(spacing: 10) {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(ChatTheme.surface(mode))
-                                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(ChatTheme.line(mode), lineWidth: 1))
-                                        Image(systemName: ChatIcon.files)
-                                            .font(.system(size: 17))
-                                            .foregroundColor(ChatTheme.text(mode).opacity(0.7))
-                                    }
-                                    .frame(width: 34, height: 34)
+                Group {
+                    if store.projects.isEmpty {
+                        ContentUnavailableView {
+                            Label("No projects yet", systemImage: "folder")
+                        } description: {
+                            Text("Create a project to group chats, instructions, and a repository.")
+                        } actions: {
+                            Button("Create Project") { store.openNewProject() }
+                                .buttonStyle(.borderedProminent)
+                        }
+                        .padding(.top, 72)
+                    } else {
+                        VStack(spacing: 10) {
+                            ForEach(store.projects) { p in
+                                Button(action: { store.openProject(p.id) }) {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        HStack(spacing: 10) {
+                                            ZStack {
+                                                RoundedRectangle(cornerRadius: 10)
+                                                    .fill(ChatTheme.surface(mode))
+                                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(ChatTheme.line(mode), lineWidth: 1))
+                                                Image(systemName: ChatIcon.files)
+                                                    .font(.system(size: 17))
+                                                    .foregroundColor(ChatTheme.text(mode).opacity(0.7))
+                                            }
+                                            .frame(width: 34, height: 34)
 
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(p.name)
-                                            .font(ChatFont.sans(14.5, weight: .bold))
-                                            .foregroundColor(ChatTheme.text(mode))
-                                        Text("\(p.chatIds.count) chats · updated \(p.updated)")
-                                            .font(ChatFont.sans(11.5))
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(p.name)
+                                                    .font(ChatFont.sans(14.5, weight: .bold))
+                                                    .foregroundColor(ChatTheme.text(mode))
+                                                Text("\(p.chatIds.count) chats · updated \(p.updated)")
+                                                    .font(ChatFont.sans(11.5))
+                                                    .foregroundColor(ChatTheme.sub(mode))
+                                            }
+                                            Spacer()
+                                            Image(systemName: ChatIcon.chevronRight)
+                                                .font(.system(size: 10, weight: .bold))
+                                                .foregroundColor(ChatTheme.sub(mode))
+                                        }
+                                        Text(p.desc)
+                                            .font(ChatFont.sans(12.5))
+                                            .lineSpacing(4)
                                             .foregroundColor(ChatTheme.sub(mode))
                                     }
-                                    Spacer()
-                                    Image(systemName: ChatIcon.chevronRight)
-                                        .font(.system(size: 10, weight: .bold))
-                                        .foregroundColor(ChatTheme.sub(mode))
+                                    .padding(15)
+                                    .background(ChatTheme.card(mode).opacity(mode == .dark ? 0.78 : 0.86))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                            .stroke(ChatTheme.line2(mode), lineWidth: 0.75)
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                                 }
-                                Text(p.desc)
-                                    .font(ChatFont.sans(12.5))
-                                    .lineSpacing(4)
-                                    .foregroundColor(ChatTheme.sub(mode))
+                                .buttonStyle(.touch)
                             }
-                            .padding(15)
-                            .background(ChatTheme.card(mode))
-                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(ChatTheme.line2(mode), lineWidth: 1))
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                        }.buttonStyle(.touch)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
+                .frame(maxWidth: 700)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
     }
 }
@@ -128,8 +148,36 @@ struct NewProjectView: View {
                             .tracking(1)
                             .foregroundColor(ChatTheme.sub(mode))
 
+                        if !store.repositoryConnections.isEmpty {
+                            Menu {
+                                ForEach(store.repositoryConnections) { connection in
+                                    Button(action: { store.selectRepositoryConnection(connection.id) }) {
+                                        if connection.id == store.selectedRepositoryConnectionID {
+                                            Label(connection.name, systemImage: "checkmark")
+                                        } else {
+                                            Text(connection.name)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Provider")
+                                        .foregroundColor(ChatTheme.sub(mode))
+                                    Spacer()
+                                    Text(selectedRepositoryConnectionName)
+                                        .foregroundColor(ChatTheme.text(mode))
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .foregroundColor(ChatTheme.sub(mode))
+                                }
+                                .font(ChatFont.sans(12.5, weight: .semibold))
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 12)
+                            }
+                            .buttonStyle(.touch)
+                        }
+
                         Button(action: {
-                            if store.githubConnected {
+                            if store.repositoryConnected {
                                 store.refreshGitHubRepositories()
                                 repoPickerOpen = true
                             } else {
@@ -137,11 +185,11 @@ struct NewProjectView: View {
                             }
                         }) {
                             HStack(spacing: 11) {
-                                Image(systemName: ChatIcon.github)
+                                Image(systemName: selectedRepositoryIcon)
                                     .font(.system(size: 17))
                                     .foregroundColor(ChatTheme.text(mode).opacity(0.75))
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("GitHub repositories")
+                                    Text("Connected repositories")
                                         .font(ChatFont.sans(13.5, weight: .bold))
                                         .foregroundColor(ChatTheme.text(mode))
                                     Text(repositoryDetail)
@@ -181,7 +229,9 @@ struct NewProjectView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
                 .padding(.bottom, 24)
+                .frame(maxWidth: 700)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
         .sheet(isPresented: $repoPickerOpen) {
             RepositoryPickerView(store: store, mode: mode)
@@ -192,10 +242,20 @@ struct NewProjectView: View {
 
     private var repositoryDetail: String {
         if let repository = store.npRepo { return repository }
-        if store.githubConnected {
+        if store.repositoryConnected {
             return "Links repository metadata; workspace sync is not enabled yet."
         }
-        return "Connect GitHub from this app to choose a repository."
+        return "Connect a repository plugin from this app to choose a repository."
+    }
+
+    private var selectedRepositoryConnectionName: String {
+        store.repositoryConnections.first(where: {
+            $0.id == store.selectedRepositoryConnectionID
+        })?.name ?? "Choose a plugin"
+    }
+
+    private var selectedRepositoryIcon: String {
+        store.selectedRepositoryConnectionID == "github" ? ChatIcon.github : "externaldrive.connected.to.line.below"
     }
 }
 
@@ -220,8 +280,8 @@ private struct RepositoryPickerView: View {
                     if store.githubRepositories.isEmpty {
                         ContentUnavailableView(
                             "No repositories found",
-                            systemImage: ChatIcon.github,
-                            description: Text("The connected GitHub account did not return any repositories.")
+                            systemImage: "externaldrive.connected.to.line.below",
+                            description: Text("The selected connection plugin did not return any repositories.")
                         )
                     } else {
                         List(store.githubRepositories) { repository in
@@ -253,7 +313,9 @@ private struct RepositoryPickerView: View {
                     }
                 }
             }
-            .navigationTitle("GitHub repository")
+            .navigationTitle(store.repositoryConnections.first(where: {
+                $0.id == store.selectedRepositoryConnectionID
+            })?.name ?? "Repository")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -284,11 +346,9 @@ struct ProjectDetailView: View {
                         .lineSpacing(5)
                         .foregroundColor(ChatTheme.sub(mode))
 
-                    Button(action: { store.newChat() }) {
-                        HStack(spacing: 8) {
-                            Text("+ New chat in project")
-                                .font(ChatFont.sans(13.5, weight: .bold))
-                        }
+                    Button(action: { store.newChat(inProject: store.activeProject?.id) }) {
+                        Label("New chat in project", systemImage: "plus")
+                            .font(ChatFont.sans(13.5, weight: .bold))
                         .foregroundColor(ChatTheme.bg(mode))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -307,7 +367,13 @@ struct ProjectDetailView: View {
                             Divider().background(ChatTheme.line(mode))
                             KnowledgeRow(icon: ChatIcon.upload, label: "Files", value: "\(store.activeProject?.files ?? 0) attached", mode: mode)
                             Divider().background(ChatTheme.line(mode))
-                            KnowledgeRow(icon: ChatIcon.github, label: "GitHub metadata", value: store.activeProject?.repo ?? "Not linked", mode: mode, mono: true)
+                            KnowledgeRow(
+                                icon: "link",
+                                label: repositoryLabel,
+                                value: store.activeProject?.repo ?? "Not linked",
+                                mode: mode,
+                                mono: true
+                            )
                         }
                         .background(ChatTheme.card(mode))
                         .overlay(RoundedRectangle(cornerRadius: 13).stroke(ChatTheme.line2(mode), lineWidth: 1))
@@ -349,6 +415,7 @@ struct ProjectDetailView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 6)
                 .padding(.bottom, 24)
+                .frame(maxWidth: 700)
             }
         }
     }
@@ -356,6 +423,21 @@ struct ProjectDetailView: View {
     private var projectChats: [Chat] {
         guard let proj = store.activeProject else { return [] }
         return proj.chatIds.compactMap { id in store.chats.first(where: { $0.id == id }) }
+    }
+
+    private var repositoryLabel: String {
+        guard let connectionID = store.activeProject?.repositoryConnectionID else {
+            return "Repository"
+        }
+        let project = store.activeProject
+        let name = project?.repositoryConnectionName ?? connectionID
+        guard project?.repositoryServerID == store.activeServer?.id,
+              project?.repositoryServerURL == store.activeServer.flatMap({
+                  try? NetworkManager.shared.normalizeServerAddress($0.url)
+              }) else {
+            return "\(name) repository (other server)"
+        }
+        return "\(name) repository"
     }
 }
 

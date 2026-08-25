@@ -34,7 +34,7 @@ struct ConnectionsView: View {
                         connectionStatus(icon: "exclamationmark.triangle", title: "Connections unavailable", detail: message)
                         retryButton
                     case .idle where store.activeServer == nil:
-                        connectionStatus(icon: "server.rack", title: "No active server", detail: "Add a Monolith server before connecting GitHub repositories.")
+                        connectionStatus(icon: "server.rack", title: "No active server", detail: "Add a Monolith server before connecting external apps.")
                     default:
                         if store.connections.isEmpty {
                             connectionStatus(icon: "link", title: "No connections reported", detail: "The active server did not report any configured app connections.")
@@ -43,7 +43,7 @@ struct ConnectionsView: View {
                             ForEach(store.connections) { connection in
                                 connectionCard(connection)
                             }
-                            Text("GitHub sign-in starts on this device. The active Monolith server stores the resulting credential encrypted and exposes only repositories you selected for the GitHub App.")
+                            Text("Connections are plugins advertised by the active server. Sign-in starts on this device; provider credentials remain encrypted on the server and are never returned to the app.")
                                 .font(ChatFont.sans(11.5))
                                 .lineSpacing(3)
                                 .foregroundColor(ChatTheme.sub(mode))
@@ -72,34 +72,42 @@ struct ConnectionsView: View {
                     Text(connection.name)
                         .font(ChatFont.sans(14, weight: .bold))
                         .foregroundColor(ChatTheme.text(mode))
-                    Text(connection.connected ? "Connected as \(connection.account)" : "Not connected")
+                    Text(connection.connected ? "Connected as \(connection.account)" : connection.isAvailable ? "Not connected" : "Unavailable")
                         .font(ChatFont.sans(11.5, weight: .semibold))
-                        .foregroundColor(connection.connected ? ChatTheme.online : ChatTheme.sub(mode))
+                    .foregroundColor(connection.connected ? ChatTheme.online : connection.isAvailable ? ChatTheme.sub(mode) : ChatTheme.offline)
                 }
                 Spacer()
                 Circle()
-                    .fill(connection.connected ? ChatTheme.online : ChatTheme.unknown)
+                    .fill(connection.connected ? ChatTheme.online : connection.isAvailable ? ChatTheme.unknown : ChatTheme.offline)
                     .frame(width: 8, height: 8)
             }
             Text(connection.desc)
                 .font(ChatFont.sans(12))
                 .lineSpacing(3)
                 .foregroundColor(ChatTheme.sub(mode))
-            if connection.id == "github", connection.installationRequired == true {
-                Button("Choose repositories") { store.openAddConn() }
+            if !connection.isAvailable {
+                Text(connection.unavailableReason ?? "This plugin is not configured on the active server.")
+                    .font(ChatFont.sans(11.5, weight: .semibold))
+                    .foregroundColor(ChatTheme.offline)
+            } else if connection.requiresSetup {
+                Button("Complete setup") { store.openAddConn(connection.id) }
                     .font(ChatFont.sans(11.5, weight: .bold))
                     .foregroundColor(ChatTheme.text(mode))
                     .buttonStyle(.touch)
-            } else if connection.id == "github", connection.connected {
-                Text("Repository discovery available")
-                    .font(ChatFont.sans(11.5, weight: .bold))
-                    .foregroundColor(ChatTheme.text(mode).opacity(0.75))
-                Button("Manage connection") { store.openAddConn() }
-                    .font(ChatFont.sans(11.5, weight: .bold))
-                    .foregroundColor(ChatTheme.sub(mode))
-                    .buttonStyle(.touch)
-            } else if connection.id == "github" {
-                Button("Connect GitHub") { store.openAddConn() }
+            } else if connection.connected {
+                if connection.supports("repositories") {
+                    Text("Repository discovery available")
+                        .font(ChatFont.sans(11.5, weight: .bold))
+                        .foregroundColor(ChatTheme.text(mode).opacity(0.75))
+                }
+                if connection.supports("repositories") || connection.supports("disconnect") {
+                    Button("Manage connection") { store.openAddConn(connection.id) }
+                        .font(ChatFont.sans(11.5, weight: .bold))
+                        .foregroundColor(ChatTheme.sub(mode))
+                        .buttonStyle(.touch)
+                }
+            } else if connection.supports("authorization") {
+                Button("Connect \(connection.name)") { store.openAddConn(connection.id) }
                     .font(ChatFont.sans(12, weight: .bold))
                     .foregroundColor(ChatTheme.text(mode))
                     .buttonStyle(.touch)
@@ -148,13 +156,16 @@ struct AddConnectionSheet: View {
     @Environment(\.openURL) private var openURL
     @State private var confirmDisconnect = false
 
+    private var connection: AppConnection? { store.selectedConnection }
+    private var connectionName: String { connection?.name ?? "Connection" }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Capsule().fill(ChatTheme.line2(mode)).frame(width: 36, height: 4)
                 .frame(maxWidth: .infinity)
 
             HStack {
-                Text("Connect GitHub")
+                Text(connection?.connected == true ? connectionName : "Connect \(connectionName)")
                     .font(ChatFont.sans(16, weight: .bold))
                     .foregroundColor(ChatTheme.text(mode))
                 Spacer()
@@ -163,14 +174,14 @@ struct AddConnectionSheet: View {
                     .foregroundColor(ChatTheme.text(mode))
                     .buttonStyle(.touch)
             }
-            Text("Sign in from this device, then choose which repositories the Monolith GitHub App may read. The gateway encrypts the credential and does not inject it into Pi or Oh My Pi harness processes. High-assurance deployments should isolate the gateway and harnesses with separate OS permissions.")
+            Text("Sign in from this device. The active server's \(connectionName) plugin encrypts provider credentials and never injects them into harness processes. High-assurance deployments should isolate the gateway and harnesses with separate OS permissions.")
                 .font(ChatFont.sans(12))
                 .lineSpacing(4)
                 .foregroundColor(ChatTheme.sub(mode))
 
             switch store.githubAuthorizationState {
             case .authorizing:
-                ProgressView("Waiting for GitHub…")
+                ProgressView("Waiting for \(connectionName)…")
                     .frame(maxWidth: .infinity)
                 Button("Cancel") { store.cancelGitHubAuthorization() }
                     .frame(maxWidth: .infinity, minHeight: 44)
@@ -179,7 +190,7 @@ struct AddConnectionSheet: View {
                 ProgressView("Disconnecting…")
                     .frame(maxWidth: .infinity, minHeight: 44)
             case .installationRequired(let url):
-                primaryButton("Choose repositories on GitHub") { openURL(url) }
+                primaryButton("Complete setup on \(connectionName)") { openURL(url) }
                 Button("I've finished setup") {
                     store.refreshConnections()
                     store.closeAddConn()
@@ -190,17 +201,27 @@ struct AddConnectionSheet: View {
                 Text(message)
                     .font(ChatFont.sans(11.5))
                     .foregroundColor(ChatTheme.offline)
-                primaryButton("Try GitHub again") { store.connectGitHub() }
-            case .idle where store.githubConnected:
-                primaryButton("Refresh repositories") {
-                    store.refreshConnections()
-                    store.closeAddConn()
+                if connection?.supports("authorization") == true {
+                    primaryButton("Try \(connectionName) again") { store.connectConnection() }
                 }
-                Button("Disconnect GitHub", role: .destructive) { confirmDisconnect = true }
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .buttonStyle(.touch)
+            case .idle where connection?.connected == true:
+                if connection?.supports("repositories") == true {
+                    primaryButton("Refresh repositories") {
+                        store.refreshConnections()
+                        store.closeAddConn()
+                    }
+                }
+                if connection?.supports("disconnect") == true {
+                    Button("Disconnect \(connectionName)", role: .destructive) { confirmDisconnect = true }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .buttonStyle(.touch)
+                }
+            case .idle where connection?.supports("authorization") != true:
+                Text("This plugin does not offer an app sign-in action.")
+                    .font(ChatFont.sans(12))
+                    .foregroundColor(ChatTheme.sub(mode))
             default:
-                primaryButton("Continue with GitHub") { store.connectGitHub() }
+                primaryButton("Continue with \(connectionName)") { store.connectConnection() }
             }
         }
         .padding(.horizontal, 16)
@@ -210,8 +231,8 @@ struct AddConnectionSheet: View {
         .clipShape(RoundedCorner(radius: 22, corners: [.topLeft, .topRight]))
         .shadow(color: Color.black.opacity(0.25), radius: 20, x: 0, y: -8)
         .accessibilityAddTraits(.isModal)
-        .confirmationDialog("Disconnect GitHub?", isPresented: $confirmDisconnect, titleVisibility: .visible) {
-            Button("Disconnect", role: .destructive) { store.disconnectGitHub() }
+        .confirmationDialog("Disconnect \(connectionName)?", isPresented: $confirmDisconnect, titleVisibility: .visible) {
+            Button("Disconnect", role: .destructive) { store.disconnectConnection() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Projects keep their repository labels, but repository browsing will be unavailable until you reconnect.")

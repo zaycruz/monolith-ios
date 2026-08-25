@@ -35,21 +35,51 @@ struct RemoteRuntime: Codable, Equatable, Sendable {
     }
 }
 
-struct GitHubRepository: Codable, Equatable, Identifiable, Sendable {
-    let id: Int
+struct ConnectionRepository: Codable, Equatable, Identifiable, Sendable {
+    let id: String
+    let connectionID: String
     let fullName: String
     let isPrivate: Bool
     let defaultBranch: String
 
+    init(id: Int, connectionID: String = "github", fullName: String, isPrivate: Bool, defaultBranch: String) {
+        self.init(id: String(id), connectionID: connectionID, fullName: fullName, isPrivate: isPrivate, defaultBranch: defaultBranch)
+    }
+
+    init(id: String, connectionID: String, fullName: String, isPrivate: Bool, defaultBranch: String) {
+        self.id = id
+        self.connectionID = connectionID
+        self.fullName = fullName
+        self.isPrivate = isPrivate
+        self.defaultBranch = defaultBranch
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
+        case connectionID = "connection_id"
         case fullName = "full_name"
         case isPrivate = "private"
         case defaultBranch = "default_branch"
     }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        if let stringID = try? values.decode(String.self, forKey: .id) {
+            id = stringID
+        } else {
+            id = String(try values.decode(Int.self, forKey: .id))
+        }
+        connectionID = try values.decodeIfPresent(String.self, forKey: .connectionID) ?? ""
+        fullName = try values.decode(String.self, forKey: .fullName)
+        isPrivate = try values.decode(Bool.self, forKey: .isPrivate)
+        defaultBranch = try values.decode(String.self, forKey: .defaultBranch)
+    }
 }
 
-struct GitHubOAuthStart: Codable, Equatable, Sendable {
+typealias GitHubRepository = ConnectionRepository
+
+struct ConnectionAuthorizationStart: Codable, Equatable, Sendable {
+    let connectionID: String?
     let flowID: String
     let authorizationURL: URL
     let state: String
@@ -57,27 +87,68 @@ struct GitHubOAuthStart: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case state
+        case connectionID = "connection_id"
         case flowID = "flow_id"
         case authorizationURL = "authorization_url"
         case redirectURI = "redirect_uri"
     }
+
+    init(flowID: String, authorizationURL: URL, state: String, redirectURI: URL, connectionID: String? = nil) {
+        self.connectionID = connectionID
+        self.flowID = flowID
+        self.authorizationURL = authorizationURL
+        self.state = state
+        self.redirectURI = redirectURI
+    }
 }
 
-struct GitHubOAuthResult: Codable, Equatable, Sendable {
-    let installationRequired: Bool
-    let installationURL: URL?
+struct ConnectionAuthorizationResult: Codable, Equatable, Sendable {
+    let connectionID: String?
+    let setupRequired: Bool
+    let setupURL: URL?
     let account: String?
 
-    init(installationRequired: Bool, installationURL: URL?, account: String? = nil) {
-        self.installationRequired = installationRequired
-        self.installationURL = installationURL
+    var requiresSetup: Bool { setupRequired }
+    var resolvedSetupURL: URL? { setupURL }
+
+    init(
+        installationRequired: Bool,
+        installationURL: URL?,
+        account: String? = nil,
+        connectionID: String? = nil
+    ) {
+        self.connectionID = connectionID
+        self.setupRequired = installationRequired
+        self.setupURL = installationURL
         self.account = account
     }
 
     enum CodingKeys: String, CodingKey {
         case account
+        case connectionID = "connection_id"
         case installationRequired = "installation_required"
         case installationURL = "installation_url"
+        case setupRequired = "setup_required"
+        case setupURL = "setup_url"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        connectionID = try values.decodeIfPresent(String.self, forKey: .connectionID)
+        setupRequired = try values.decodeIfPresent(Bool.self, forKey: .setupRequired)
+            ?? values.decodeIfPresent(Bool.self, forKey: .installationRequired)
+            ?? false
+        setupURL = try values.decodeIfPresent(URL.self, forKey: .setupURL)
+            ?? values.decodeIfPresent(URL.self, forKey: .installationURL)
+        account = try values.decodeIfPresent(String.self, forKey: .account)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encodeIfPresent(connectionID, forKey: .connectionID)
+        try values.encode(setupRequired, forKey: .setupRequired)
+        try values.encodeIfPresent(setupURL, forKey: .setupURL)
+        try values.encodeIfPresent(account, forKey: .account)
     }
 }
 
@@ -87,16 +158,29 @@ protocol MonolithNetworkClient {
     func getModels(from serverAddress: String, apiToken: String?) async throws -> [RemoteModel]
     func getRuntimes(from serverAddress: String, apiToken: String?) async throws -> [RemoteRuntime]
     func getConnections(from serverAddress: String, apiToken: String?) async throws -> [AppConnection]
-    func getGitHubRepositories(from serverAddress: String, apiToken: String?) async throws -> [GitHubRepository]
-    func startGitHubOAuth(from serverAddress: String, apiToken: String?) async throws -> GitHubOAuthStart
-    func completeGitHubOAuth(
+    func getRepositories(
+        for connectionID: String,
+        from serverAddress: String,
+        apiToken: String?
+    ) async throws -> [ConnectionRepository]
+    func startConnectionAuthorization(
+        for connectionID: String,
+        from serverAddress: String,
+        apiToken: String?
+    ) async throws -> ConnectionAuthorizationStart
+    func completeConnectionAuthorization(
+        for connectionID: String,
         from serverAddress: String,
         apiToken: String?,
         flowID: String,
         state: String,
         code: String
-    ) async throws -> GitHubOAuthResult
-    func disconnectGitHub(from serverAddress: String, apiToken: String?) async throws
+    ) async throws -> ConnectionAuthorizationResult
+    func disconnectConnection(
+        _ connectionID: String,
+        from serverAddress: String,
+        apiToken: String?
+    ) async throws
     func sendChatMessageStreaming(
         to serverAddress: String,
         model: String,
@@ -367,6 +451,16 @@ private struct GitHubOAuthCompleteRequest: Encodable {
 final class NetworkManager: MonolithNetworkClient {
     static let shared = NetworkManager()
 
+    private func connectionPathComponent(_ id: String) throws -> String {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-")
+        guard !id.isEmpty,
+              id.unicodeScalars.first.map(CharacterSet.alphanumerics.contains) == true,
+              id.unicodeScalars.allSatisfy(allowed.contains) else {
+            throw NetworkError.invalidURL
+        }
+        return id
+    }
+
     private func applyAuthorization(_ token: String?, to request: inout URLRequest) {
         guard let token = token?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty else { return }
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -554,19 +648,41 @@ final class NetworkManager: MonolithNetworkClient {
         return response.data
     }
 
-    func getGitHubRepositories(from serverAddress: String, apiToken: String? = nil) async throws -> [GitHubRepository] {
-        let response: ListResponse<GitHubRepository> = try await get(
-            "/v1/github/repositories",
+    func getRepositories(
+        for connectionID: String,
+        from serverAddress: String,
+        apiToken: String? = nil
+    ) async throws -> [ConnectionRepository] {
+        let connectionID = try connectionPathComponent(connectionID)
+        let response: ListResponse<ConnectionRepository> = try await get(
+            "/v1/connections/\(connectionID)/repositories",
             from: serverAddress,
             apiToken: apiToken,
             requiresSecureTransport: true
         )
-        return response.data
+        return try response.data.map { repository in
+            if repository.connectionID == connectionID { return repository }
+            if connectionID == "github", repository.connectionID.isEmpty {
+                return ConnectionRepository(
+                    id: repository.id,
+                    connectionID: connectionID,
+                    fullName: repository.fullName,
+                    isPrivate: repository.isPrivate,
+                    defaultBranch: repository.defaultBranch
+                )
+            }
+            throw NetworkError.invalidResponse
+        }
     }
 
-    func startGitHubOAuth(from serverAddress: String, apiToken: String? = nil) async throws -> GitHubOAuthStart {
-        try await post(
-            "/v1/github/oauth/start",
+    func startConnectionAuthorization(
+        for connectionID: String,
+        from serverAddress: String,
+        apiToken: String? = nil
+    ) async throws -> ConnectionAuthorizationStart {
+        let connectionID = try connectionPathComponent(connectionID)
+        return try await post(
+            "/v1/connections/\(connectionID)/authorization/start",
             body: EmptyRequest(),
             to: serverAddress,
             apiToken: apiToken,
@@ -574,15 +690,17 @@ final class NetworkManager: MonolithNetworkClient {
         )
     }
 
-    func completeGitHubOAuth(
+    func completeConnectionAuthorization(
+        for connectionID: String,
         from serverAddress: String,
         apiToken: String? = nil,
         flowID: String,
         state: String,
         code: String
-    ) async throws -> GitHubOAuthResult {
-        try await post(
-            "/v1/github/oauth/complete",
+    ) async throws -> ConnectionAuthorizationResult {
+        let connectionID = try connectionPathComponent(connectionID)
+        return try await post(
+            "/v1/connections/\(connectionID)/authorization/complete",
             body: GitHubOAuthCompleteRequest(flowID: flowID, state: state, code: code),
             to: serverAddress,
             apiToken: apiToken,
@@ -591,13 +709,18 @@ final class NetworkManager: MonolithNetworkClient {
         )
     }
 
-    func disconnectGitHub(from serverAddress: String, apiToken: String? = nil) async throws {
+    func disconnectConnection(
+        _ connectionID: String,
+        from serverAddress: String,
+        apiToken: String? = nil
+    ) async throws {
+        let connectionID = try connectionPathComponent(connectionID)
         let baseURL = try validatedServerAddress(
             serverAddress,
             apiToken: apiToken,
             requiresSecureTransport: true
         )
-        guard let url = URL(string: "\(baseURL)/v1/github/connection") else { throw NetworkError.invalidURL }
+        guard let url = URL(string: "\(baseURL)/v1/connections/\(connectionID)") else { throw NetworkError.invalidURL }
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         request.timeoutInterval = 15.0
@@ -605,7 +728,7 @@ final class NetworkManager: MonolithNetworkClient {
         let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response, data: data)
     }
-    
+
     // MARK: - Chat (JSON or multipart with attachments)
     
     private func buildChatRequest(

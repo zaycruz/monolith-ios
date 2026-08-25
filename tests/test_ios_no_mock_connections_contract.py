@@ -18,11 +18,11 @@ def test_ios_does_not_ship_fabricated_connected_accounts():
         assert fabricated_identity not in production_source
 
 
-def test_connections_ui_starts_github_authorization_in_client():
+def test_connections_ui_starts_plugin_authorization_in_client():
     source = (SWIFT_ROOT / "ConnectionsView.swift").read_text(encoding="utf-8")
 
     assert "Sign in from this device" in source
-    assert "store.connectGitHub()" in source
+    assert "store.connectConnection()" in source
     assert "server-managed" not in source
     assert "toggleConnection" not in source
 

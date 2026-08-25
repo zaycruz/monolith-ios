@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import test from "node:test";
 
@@ -22,8 +21,33 @@ async function listen(gateway) {
 }
 
 async function close(gateway) {
-  gateway.close();
+  await gateway.close();
   await new Promise((resolve) => gateway.server.close(resolve));
+}
+
+function connectionRegistration(plugin = {}, config = {}) {
+  const id = config.id ?? "github";
+  return {
+    config: {
+      id,
+      displayName: id === "github" ? "GitHub" : id,
+      available: true,
+      unavailableReason: null,
+      authorization: "oauth",
+      capabilities: ["authorization", "repositories", "disconnect"],
+      resourceKind: "repository",
+      ...config,
+    },
+    plugin: {
+      id,
+      status: async () => ({ connected: false, account: null, description: "GitHub repositories" }),
+      repositories: async () => [],
+      startAuthorization: async () => ({}),
+      completeAuthorization: async () => ({}),
+      disconnect: async () => {},
+      ...plugin,
+    },
+  };
 }
 
 test("stableSessionId is deterministic and UUID-shaped", () => {
@@ -187,8 +211,7 @@ test("GitHub App secrets stay out of harness environments", () => {
     MONOLITH_GATEWAY_TOKEN: "legacy-secret",
     MODEL_PROVIDER_TOKEN: "required-by-harness",
   }, "/tmp");
-  assert.equal(config.github.oauth.clientId, "client-id");
-  assert.equal(config.github.oauth.appSlug, "monolith-test");
+  assert.deepEqual(config.connectionModules, [new URL("./connections/github.mjs", import.meta.url).href]);
   assert.equal(config.runtimes.pi.environment.GITHUB_OAUTH_CLIENT_SECRET, undefined);
   assert.equal(config.runtimes.pi.environment.GITHUB_CREDENTIAL_ENCRYPTION_KEY, undefined);
   assert.equal(config.runtimes.pi.environment.PI_GATEWAY_TOKEN, undefined);
@@ -196,7 +219,7 @@ test("GitHub App secrets stay out of harness environments", () => {
   assert.equal(config.runtimes.pi.environment.MODEL_PROVIDER_TOKEN, "required-by-harness");
 });
 
-test("default loadConfig captures gateway secrets then scrubs Node process.env", () => {
+test("default loadConfig scrubs gateway secrets from Node process.env", () => {
   const keys = [
     "PI_GATEWAY_HOST",
     "PI_GATEWAY_TOKEN",
@@ -219,8 +242,7 @@ test("default loadConfig captures gateway secrets then scrubs Node process.env",
     const config = loadConfig();
 
     assert.equal(config.authToken, "gateway-secret");
-    assert.equal(config.github.oauth.clientSecret, "client-secret");
-    assert.equal(config.github.oauth.encryptionKey, Buffer.alloc(32, 9).toString("base64"));
+    assert.deepEqual(config.connectionModules, [new URL("./connections/github.mjs", import.meta.url).href]);
     for (const key of keys.slice(1)) assert.equal(process.env[key], undefined);
   } finally {
     for (const [key, value] of Object.entries(previous)) {
@@ -230,17 +252,33 @@ test("default loadConfig captures gateway secrets then scrubs Node process.env",
   }
 });
 
-test("GitHub uses a stable configured principal and fixed app callback independent of bearer rotation", () => {
-  const first = loadConfig({
+test("connection plugin modules extend the bundled defaults", () => {
+  const config = loadConfig({
     PATH: "",
-    PI_GATEWAY_TOKEN: "first-bearer",
-    GITHUB_OAUTH_REDIRECT_URI: "https://attacker.invalid/callback",
+    MONOLITH_CONNECTION_MODULES: "./connections/linear.mjs, ./connections/slack.mjs",
   }, "/tmp");
-  const second = loadConfig({ PATH: "", PI_GATEWAY_TOKEN: "second-bearer" }, "/tmp");
 
-  assert.equal(first.github.principalId, "single-user");
-  assert.equal(second.github.principalId, "single-user");
-  assert.equal(first.github.oauth.redirectURI, "monolith://oauth/github");
+  assert.deepEqual(config.connectionModules, [
+    new URL("./connections/github.mjs", import.meta.url).href,
+    "./connections/linear.mjs",
+    "./connections/slack.mjs",
+  ]);
+});
+
+test("startGateway fails closed when a configured connection plugin cannot load", async () => {
+  const config = loadConfig({ PATH: "" }, "/tmp");
+  config.port = 0;
+  config.connectionModules = [`data:text/javascript,${encodeURIComponent(`
+    export default () => ({
+      config: { id: "bad id", displayName: "Bad", available: true, capabilities: [] },
+      plugin: { id: "bad id", async status() { return {}; } }
+    });
+  `)}`];
+
+  await assert.rejects(
+    startGateway(config),
+    /Refusing to start with failed connection plugins/,
+  );
 });
 
 test("loadConfig refuses unauthenticated non-loopback binding", async () => {
@@ -481,10 +519,8 @@ test("gateway routes an externally registered harness without core provider chan
 
 test("gateway exposes only verified GitHub connection state and repositories", async () => {
   const config = loadConfig({ PATH: "" }, "/tmp");
-  const githubConnection = {
+  const githubPlugin = {
     status: async () => ({
-      id: "github",
-      name: "GitHub",
       connected: true,
       account: "octocat",
       description: "Repository access is provided by the active Monolith server.",
@@ -496,7 +532,7 @@ test("gateway exposes only verified GitHub connection state and repositories", a
       default_branch: "main",
     }],
   };
-  const gateway = createGateway(config, { githubConnection });
+  const gateway = createGateway(config, { connections: [connectionRegistration(githubPlugin)] });
   const baseURL = await listen(gateway);
 
   try {
@@ -505,11 +541,18 @@ test("gateway exposes only verified GitHub connection state and repositories", a
     const connections = await connectionResponse.json();
     assert.equal(connections.data[0].account, "octocat");
     assert.equal(connections.data[0].connected, true);
+    assert.equal(connections.data[0].id, "github");
+    assert.deepEqual(connections.data[0].capabilities, ["authorization", "repositories", "disconnect"]);
 
-    const repositoryResponse = await fetch(`${baseURL}/v1/github/repositories`);
-    assert.equal(repositoryResponse.headers.get("cache-control"), "no-store");
-    const repositories = await repositoryResponse.json();
-    assert.equal(repositories.data[0].full_name, "openaccess-ai-collective/monolith");
+    for (const path of [
+      "/v1/connections/github/repositories",
+      "/v1/github/repositories",
+    ]) {
+      const repositoryResponse = await fetch(`${baseURL}${path}`);
+      assert.equal(repositoryResponse.headers.get("cache-control"), "no-store");
+      const repositories = await repositoryResponse.json();
+      assert.equal(repositories.data[0].full_name, "openaccess-ai-collective/monolith");
+    }
   } finally {
     await close(gateway);
   }
@@ -544,7 +587,11 @@ test("aborting a repository request cancels the active GitHub fetch and stops pa
       });
     },
   });
-  const gateway = createGateway(config, { githubConnection });
+  const gateway = createGateway(config, {
+    connections: [connectionRegistration({
+      repositories: ({ signal }) => githubConnection.repositories({ signal }),
+    })],
+  });
   const baseURL = await listen(gateway);
 
   try {
@@ -563,11 +610,11 @@ test("aborting a repository request cancels the active GitHub fetch and stops pa
 });
 
 test("gateway brokers app-initiated GitHub OAuth without exposing credentials", async () => {
-  const config = loadConfig({ PATH: "", GITHUB_PRINCIPAL_ID: "account-owner" }, "/tmp");
+  const config = loadConfig({ PATH: "" }, "/tmp");
   const calls = [];
-  const githubOAuth = {
-    start(principal) {
-      calls.push({ method: "start", principal });
+  const githubPlugin = {
+    startAuthorization() {
+      calls.push({ method: "start" });
       return {
         flow_id: "flow-id",
         authorization_url: "https://github.com/login/oauth/authorize?state=expected-state",
@@ -576,8 +623,10 @@ test("gateway brokers app-initiated GitHub OAuth without exposing credentials", 
         expires_in: 600,
       };
     },
-    async complete(principal, payload) {
-      calls.push({ method: "complete", principal, payload });
+    async completeAuthorization(payload) {
+      const { signal, ...values } = payload;
+      assert.equal(signal.aborted, false);
+      calls.push({ method: "complete", payload: values });
       return {
         connected: true,
         account: "octocat",
@@ -586,14 +635,11 @@ test("gateway brokers app-initiated GitHub OAuth without exposing credentials", 
         installation_url: null,
       };
     },
-    async disconnect(principal) {
-      calls.push({ method: "disconnect", principal });
-    },
-    async accessToken() {
-      return null;
+    async disconnect() {
+      calls.push({ method: "disconnect" });
     },
   };
-  const gateway = createGateway(config, { githubOAuth });
+  const gateway = createGateway(config, { connections: [connectionRegistration(githubPlugin)] });
   const baseURL = await listen(gateway);
 
   try {
@@ -620,6 +666,7 @@ test("gateway brokers app-initiated GitHub OAuth without exposing credentials", 
     assert.equal(start.headers.get("cache-control"), "no-store");
     const started = await start.json();
     assert.equal(started.flow_id, "flow-id");
+    assert.equal(started.connection_id, "github");
     assert.equal("code_verifier" in started, false);
     assert.equal("access_token" in started, false);
 
@@ -643,8 +690,135 @@ test("gateway brokers app-initiated GitHub OAuth without exposing credentials", 
     assert.equal(disconnected.status, 204);
     assert.equal(disconnected.headers.get("cache-control"), "no-store");
     assert.deepEqual(calls.map(({ method }) => method), ["start", "complete", "disconnect"]);
-    assert.equal(calls.every((call) => call.principal === calls[0].principal), true);
-    assert.equal(calls[0].principal, createHash("sha256").update("account-owner").digest("hex"));
+  } finally {
+    await close(gateway);
+  }
+});
+
+test("generic connection routes normalize provider responses and strip credentials", async () => {
+  const config = loadConfig({ PATH: "" }, "/tmp");
+  const calls = [];
+  const registration = connectionRegistration({
+    status: async () => ({
+      connected: true,
+      account: "team",
+      description: "GitLab repositories",
+      access_token: "status-secret",
+    }),
+    repositories: async () => [{
+      id: 42,
+      connection_id: "spoofed",
+      full_name: "team/project",
+      private: true,
+      default_branch: "main",
+      token: "repository-secret",
+    }],
+    startAuthorization: async () => ({
+      connection_id: "spoofed",
+      flow_id: "gitlab-flow",
+      authorization_url: "https://gitlab.com/oauth/authorize?state=gitlab-state",
+      state: "gitlab-state",
+      redirect_uri: "monolith://oauth/gitlab",
+      code_verifier: "start-secret",
+    }),
+    completeAuthorization: async ({ signal, ...payload }) => {
+      assert.equal(signal.aborted, false);
+      calls.push(payload);
+      return {
+        connection_id: "spoofed",
+        connected: true,
+        account: "team",
+        setup_required: false,
+        access_token: "completion-secret",
+      };
+    },
+    disconnect: async () => { calls.push("disconnect"); },
+  }, { id: "gitlab", displayName: "GitLab" });
+  const gateway = createGateway(config, { connections: [registration] });
+  const baseURL = await listen(gateway);
+
+  try {
+    const discovery = await (await fetch(`${baseURL}/v1/connections`)).json();
+    assert.equal(discovery.data[0].id, "gitlab");
+    assert.equal(discovery.data[0].access_token, undefined);
+
+    const repositories = await (await fetch(`${baseURL}/v1/connections/gitlab/repositories`)).json();
+    assert.deepEqual(repositories.data, [{
+      id: "42",
+      connection_id: "gitlab",
+      full_name: "team/project",
+      private: true,
+      default_branch: "main",
+    }]);
+
+    const start = await (await fetch(`${baseURL}/v1/connections/gitlab/authorization/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    })).json();
+    assert.equal(start.connection_id, "gitlab");
+    assert.equal(start.code_verifier, undefined);
+
+    const complete = await (await fetch(`${baseURL}/v1/connections/gitlab/authorization/complete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ flow_id: "gitlab-flow", state: "gitlab-state", code: "code" }),
+    })).json();
+    assert.deepEqual(complete, {
+      connection_id: "gitlab",
+      connected: true,
+      account: "team",
+      setup_required: false,
+      setup_url: null,
+    });
+
+    const disconnected = await fetch(`${baseURL}/v1/connections/gitlab`, { method: "DELETE" });
+    assert.equal(disconnected.status, 204);
+    assert.deepEqual(calls, [
+      { flowId: "gitlab-flow", state: "gitlab-state", code: "code" },
+      "disconnect",
+    ]);
+  } finally {
+    await close(gateway);
+  }
+});
+
+test("aborting authorization completion prevents late plugin mutation", async () => {
+  const config = loadConfig({ PATH: "", MONOLITH_CONNECTION_OPERATION_TIMEOUT_MS: "1000" }, "/tmp");
+  let markStarted;
+  let markAborted;
+  const started = new Promise((resolve) => { markStarted = resolve; });
+  const aborted = new Promise((resolve) => { markAborted = resolve; });
+  let mutated = false;
+  const registration = connectionRegistration({
+    completeAuthorization: async ({ signal }) => {
+      markStarted();
+      await new Promise((resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          markAborted();
+          reject(new Error("aborted"));
+        }, { once: true });
+      });
+      mutated = true;
+      return { connected: true };
+    },
+  });
+  const gateway = createGateway(config, { connections: [registration] });
+  const baseURL = await listen(gateway);
+
+  try {
+    const request = httpRequest(`${baseURL}/v1/connections/github/authorization/complete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+    });
+    request.on("error", () => {});
+    request.end(JSON.stringify({ flow_id: "flow", state: "state", code: "code" }));
+    await started;
+    request.destroy();
+    await aborted;
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(mutated, false);
   } finally {
     await close(gateway);
   }
@@ -656,11 +830,11 @@ test("configured bearer token protects every endpoint", async () => {
     PI_GATEWAY_TOKEN: "gateway-secret",
     MONOLITH_SESSION_REGISTRY: "/tmp/monolith-unused-registry.json",
   }, "/tmp");
-  const githubConnection = {
-    status: async () => ({ id: "github", name: "GitHub", connected: true, account: "octocat", description: "verified" }),
+  const githubPlugin = {
+    status: async () => ({ connected: true, account: "octocat", description: "verified" }),
     repositories: async () => [],
   };
-  const gateway = createGateway(config, { githubConnection });
+  const gateway = createGateway(config, { connections: [connectionRegistration(githubPlugin)] });
   const baseURL = await listen(gateway);
   try {
     for (const path of ["/v1/runtimes", "/v1/connections", "/v1/github/repositories"]) {
