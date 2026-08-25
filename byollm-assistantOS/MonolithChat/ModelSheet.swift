@@ -13,27 +13,39 @@ struct ModelSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Capsule().fill(ChatTheme.line2(mode)).frame(width: 36, height: 4)
-                .padding(.bottom, 14)
-
-            HStack(alignment: .firstTextBaseline) {
-                Text("Choose a model")
-                    .font(ChatFont.sans(17, weight: .bold))
-                    .tracking(-0.4)
-                    .foregroundColor(ChatTheme.text(mode))
-                Spacer()
-                HStack(spacing: 6) {
-                    StatusDot(status: store.activeServer?.status ?? .unknown, size: 7)
-                    Text(store.activeServer?.status.label ?? "No server")
-                        .font(ChatFont.sans(11.5, weight: .semibold))
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Choose a model")
+                        .font(ChatFont.sans(20, weight: .bold))
+                        .tracking(-0.5)
+                        .foregroundColor(ChatTheme.text(mode))
+                    Text("Available on \(store.activeServer?.name ?? "your local server")")
+                        .font(ChatFont.sans(12.5))
                         .foregroundColor(ChatTheme.sub(mode))
                 }
+                Spacer()
+                Button(action: store.closeSheet) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(ChatTheme.text(mode))
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.touch)
+                .monolithGlass(mode: mode, cornerRadius: 18, interactive: true)
+                .accessibilityLabel("Close model picker")
             }
-            Text("Available on \(store.activeServer?.name ?? "your local server")")
-                .font(ChatFont.sans(12.5))
-                .foregroundColor(ChatTheme.sub(mode))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 12)
+            .padding(.bottom, 10)
+
+            HStack(spacing: 6) {
+                StatusDot(status: store.activeServer?.status ?? .unknown, size: 7)
+                Text(store.activeServer?.status.label ?? "No server")
+                    .font(ChatFont.sans(11.5, weight: .semibold))
+                    .foregroundColor(ChatTheme.sub(mode))
+                Spacer()
+            }
+            .padding(.bottom, 14)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Server status: \(store.activeServer?.status.label ?? "No server")")
 
             Group {
                 switch store.modelLoadState {
@@ -96,16 +108,14 @@ struct ModelSheet: View {
                             }
                         }
                         .frame(maxHeight: 320)
+                        .scrollDismissesKeyboard(.interactively)
                     }
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 28)
-        .background(ChatTheme.bg(mode))
-        .clipShape(RoundedCorner(radius: 22, corners: [.topLeft, .topRight]))
-        .shadow(color: Color.black.opacity(0.25), radius: 20, x: 0, y: -8)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 24)
     }
 
     private func modelRow(_ model: ChatModel) -> some View {
@@ -130,15 +140,15 @@ struct ModelSheet: View {
             }
             .frame(maxWidth: .infinity, minHeight: 56)
             .padding(.horizontal, 14)
-            .background(ChatTheme.card(mode))
+            .background(ChatTheme.card(mode).opacity(mode == .dark ? 0.74 : 0.82))
             .overlay(
-                RoundedRectangle(cornerRadius: 13)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(
                         isSelected ? ChatTheme.text(mode) : ChatTheme.line2(mode),
-                        lineWidth: 1
+                        lineWidth: isSelected ? 1.25 : 0.75
                     )
             )
-            .clipShape(RoundedRectangle(cornerRadius: 13))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.touch)
         .accessibilityLabel(model.name)

@@ -173,11 +173,10 @@ struct ModelSelectorButton: View {
                     .foregroundColor(ChatTheme.sub(mode))
             }
             .padding(.horizontal, 14)
-            .background(ChatTheme.card(mode))
-            .overlay(Capsule().stroke(ChatTheme.line2(mode), lineWidth: 1))
-            .clipShape(Capsule())
+            .padding(.vertical, 8)
         }
         .buttonStyle(.touch)
+        .monolithGlass(mode: mode, cornerRadius: 22, interactive: true)
         .accessibilityLabel("Model \(store.activeModelShort)")
         .accessibilityValue(store.activeServer?.status.label ?? "No server")
         .accessibilityHint("Opens the model picker")

@@ -12,12 +12,13 @@ import UIKit
 
 struct RootView: View {
     @StateObject private var store = AppStore()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var mode: ChatTheme.Mode { store.mode }
 
     var body: some View {
         ZStack {
-            ChatTheme.bg(mode).ignoresSafeArea()
+            MonolithBackdrop(mode: mode)
 
             // Base screen
             VStack(spacing: 0) {
@@ -56,17 +57,6 @@ struct RootView: View {
                     .zIndex(7)
             }
 
-            // Model sheet
-            if store.modelSheet {
-                sheetBackdrop { store.closeSheet() }
-                VStack {
-                    Spacer()
-                    ModelSheet(store: store, mode: mode)
-                }
-                .transition(.move(edge: .bottom))
-                .zIndex(9)
-            }
-
             // Add connection sheet
             if store.addConnOpen {
                 sheetBackdrop { store.dismissAddConnection() }
@@ -78,15 +68,30 @@ struct RootView: View {
                 .zIndex(9)
             }
         }
-        .animation(.easeInOut(duration: 0.22), value: store.drawer)
-        .animation(.easeInOut(duration: 0.22), value: store.modelSheet)
-        .animation(.easeInOut(duration: 0.22), value: store.addConnOpen)
-        .animation(.easeInOut(duration: 0.22), value: store.newProjOpen)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.30, extraBounce: 0.02), value: store.drawer)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.30, extraBounce: 0.02), value: store.addConnOpen)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.30, extraBounce: 0.02), value: store.newProjOpen)
         .simultaneousGesture(drawerGesture)
         .onChange(of: store.drawer) { _, isOpen in
             if isOpen {
                 dismissAppKeyboard()
                 store.dismissReasoning()
+            }
+        }
+        .sheet(isPresented: $store.modelSheet) {
+            ModelSheet(store: store, mode: mode)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(30)
+                .presentationBackground(.ultraThinMaterial)
+        }
+        .accessibilityAction(.escape) {
+            if store.addConnOpen {
+                store.dismissAddConnection()
+            } else if store.drawer {
+                store.closeDrawer()
+            } else if store.newProjOpen {
+                store.closeNewProject()
             }
         }
         .preferredColorScheme(store.isDark ? .dark : .light)

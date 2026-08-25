@@ -30,6 +30,17 @@ struct ChatsListView: View {
                 TextField("Search your chats", text: $store.chatQuery)
                     .font(ChatFont.sans(13.5))
                     .foregroundColor(ChatTheme.text(mode))
+                    .submitLabel(.search)
+                    .textInputAutocapitalization(.never)
+                if !store.chatQuery.isEmpty {
+                    Button(action: { store.chatQuery = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(ChatTheme.sub(mode))
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -38,6 +49,7 @@ struct ChatsListView: View {
             .clipShape(RoundedRectangle(cornerRadius: 11))
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
+            .frame(maxWidth: 700)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -78,16 +90,22 @@ struct ChatsListView: View {
                     }
 
                     if !store.chatQuery.trimmingCharacters(in: .whitespaces).isEmpty && store.filteredChatGroups.isEmpty {
-                        Text("No chats match \"\(store.chatQuery)\"")
-                            .font(ChatFont.sans(13))
-                            .foregroundColor(ChatTheme.sub(mode))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 40)
+                        ContentUnavailableView.search(text: store.chatQuery)
+                            .padding(.top, 40)
+                    } else if store.filteredChatGroups.isEmpty {
+                        ContentUnavailableView(
+                            "No chats yet",
+                            systemImage: "bubble.left.and.bubble.right",
+                            description: Text("Start a new chat and it will appear here.")
+                        )
+                        .padding(.top, 40)
                     }
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 24)
+                .frame(maxWidth: 700)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
     }
 }

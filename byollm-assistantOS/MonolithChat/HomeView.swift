@@ -12,9 +12,9 @@ struct HomeView: View {
     var mode: ChatTheme.Mode
 
     private let prompts = [
-        "Draft an agent prompt for invoice triage",
-        "Write a vLLM launch command for a 70B model",
-        "Summarize a document from my files"
+        (icon: "wand.and.stars", text: "Draft an agent prompt for invoice triage"),
+        (icon: "terminal", text: "Write a vLLM launch command for a 70B model"),
+        (icon: "doc.text.magnifyingglass", text: "Summarize a document from my files")
     ]
 
     var body: some View {
@@ -32,6 +32,9 @@ struct HomeView: View {
                         .font(ChatFont.sans(12.5, weight: .semibold))
                         .foregroundColor(ChatTheme.sub(mode))
                 }
+                .padding(.horizontal, 11)
+                .padding(.vertical, 7)
+                .monolithGlass(mode: mode, cornerRadius: 16)
                 Text("What should we work on?")
                     .font(ChatFont.sans(34, weight: .bold))
                     .tracking(-0.8)
@@ -42,23 +45,30 @@ struct HomeView: View {
                     .lineSpacing(5)
                     .foregroundColor(ChatTheme.sub(mode))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: 700, alignment: .leading)
             .padding(.horizontal, 28)
             Spacer()
             VStack(spacing: 8) {
-                ForEach(prompts, id: \.self) { p in
+                ForEach(Array(prompts.enumerated()), id: \.offset) { _, prompt in
                     Button {
-                        store.usePrompt(p)
+                        store.usePrompt(prompt.text)
                     } label: {
-                        Text(p)
-                            .font(ChatFont.sans(14, weight: .semibold))
-                            .foregroundColor(ChatTheme.text(mode))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 13)
-                            .background(ChatTheme.card(mode))
-                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(ChatTheme.line2(mode), lineWidth: 1))
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        HStack(spacing: 12) {
+                            Image(systemName: prompt.icon)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(ChatTheme.sub(mode))
+                                .frame(width: 24)
+                            Text(prompt.text)
+                                .font(ChatFont.sans(14, weight: .semibold))
+                                .foregroundColor(ChatTheme.text(mode))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(ChatTheme.sub(mode).opacity(0.78))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .monolithGlass(mode: mode, cornerRadius: 18, interactive: true)
                     }
                     .buttonStyle(.touch)
                     .disabled(!store.isChatReady)
@@ -67,6 +77,7 @@ struct HomeView: View {
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 10)
+            .frame(maxWidth: 720)
         }
         .contentShape(Rectangle())
         .onTapGesture {
@@ -94,9 +105,9 @@ struct ChatTopBar: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(width: 44, height: 44)
-                .padding(.leading, 6)
             }
             .buttonStyle(.touch)
+            .monolithGlass(mode: mode, cornerRadius: 22, interactive: true)
             .accessibilityLabel("Open navigation")
 
             Spacer()
@@ -112,15 +123,21 @@ struct ChatTopBar: View {
                     .font(.system(size: 20))
                     .foregroundColor(ChatTheme.text(mode))
                     .frame(width: 44, height: 44)
-                    .padding(.trailing, 6)
             }
             .buttonStyle(.touch)
+            .monolithGlass(mode: mode, cornerRadius: 22, interactive: true)
             .accessibilityLabel("New chat")
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
         .overlay(
-            showBorder ? Rectangle().frame(height: 1).foregroundColor(ChatTheme.line(mode)).frame(maxHeight: .infinity, alignment: .bottom) : nil
+            showBorder
+                ? Rectangle()
+                    .frame(height: 0.5)
+                    .foregroundColor(ChatTheme.line(mode))
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                : nil
         )
     }
 }

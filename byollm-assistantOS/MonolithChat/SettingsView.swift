@@ -25,14 +25,12 @@ struct SettingsView: View {
                 VStack(spacing: 22) {
                     // Appearance
                     SettingsSection(title: "Appearance", mode: mode) {
-                        HStack(spacing: 0) {
-                            SegmentButton(label: "Light", selected: !store.isDark, mode: mode) { store.isDark = false }
-                            SegmentButton(label: "Dark", selected: store.isDark, mode: mode) { store.isDark = true }
+                        Picker("Appearance", selection: $store.isDark) {
+                            Label("Light", systemImage: "sun.max").tag(false)
+                            Label("Dark", systemImage: "moon").tag(true)
                         }
-                        .padding(3)
-                        .background(ChatTheme.surface(mode))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(ChatTheme.line(mode), lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .pickerStyle(.segmented)
+                        .accessibilityLabel("Appearance")
                     }
 
                     // Model
@@ -110,7 +108,9 @@ struct SettingsView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
                 .padding(.bottom, 24)
+                .frame(maxWidth: 700)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
     }
 }
@@ -139,7 +139,14 @@ struct SettingsNavBar: View {
             if let trailing = trailing { trailing }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
+        .overlay(
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(ChatTheme.line(mode)),
+            alignment: .bottom
+        )
     }
 }
 
@@ -185,30 +192,12 @@ struct SettingsCardRow: View {
         }
         .padding(.horizontal, 15)
         .padding(.vertical, 14)
-        .background(ChatTheme.card(mode))
-        .overlay(RoundedRectangle(cornerRadius: 13).stroke(ChatTheme.line2(mode), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 13))
-    }
-}
-
-// MARK: - Appearance segment button
-struct SegmentButton: View {
-    var label: String
-    var selected: Bool
-    var mode: ChatTheme.Mode
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(ChatFont.sans(13, weight: .bold))
-                .foregroundColor(selected ? ChatTheme.text(mode) : ChatTheme.sub(mode))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 9)
-                .background(selected ? ChatTheme.card(mode) : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: 9))
-                .shadow(color: selected ? Color.black.opacity(0.12) : .clear, radius: 2, x: 0, y: 1)
-        }.buttonStyle(.touch)
+        .background(ChatTheme.card(mode).opacity(mode == .dark ? 0.78 : 0.86))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(ChatTheme.line2(mode), lineWidth: 0.75)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 

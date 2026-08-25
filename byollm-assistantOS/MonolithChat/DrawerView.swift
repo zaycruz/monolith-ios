@@ -22,8 +22,9 @@ struct DrawerView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
+        GeometryReader { proxy in
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
                 // Search
                 HStack(spacing: 8) {
                     Image(systemName: ChatIcon.search)
@@ -33,6 +34,7 @@ struct DrawerView: View {
                         .font(ChatFont.sans(14))
                         .foregroundColor(ChatTheme.text(mode))
                         .submitLabel(.search)
+                        .textInputAutocapitalization(.never)
                     if !store.chatQuery.isEmpty {
                         Button(action: { store.chatQuery = "" }) {
                             Image(systemName: "xmark.circle.fill")
@@ -46,12 +48,7 @@ struct DrawerView: View {
                 .frame(minHeight: 48)
                 .padding(.leading, 12)
                 .padding(.trailing, 4)
-                .background(ChatTheme.surface(mode))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 13)
-                        .stroke(ChatTheme.line(mode), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 13))
+                .monolithGlass(mode: mode, cornerRadius: 16, interactive: true)
                 .padding(.horizontal, 14)
                 .padding(.top, 14)
                 .padding(.bottom, 10)
@@ -118,6 +115,7 @@ struct DrawerView: View {
                     .padding(.horizontal, 8)
                     .padding(.bottom, 8)
                 }
+                .scrollDismissesKeyboard(.interactively)
 
                 // Bottom: server and settings
                 Button(action: { store.openSettingsFromDrawer() }) {
@@ -151,16 +149,28 @@ struct DrawerView: View {
                     alignment: .top
                 )
             }
-            .frame(width: min(UIScreen.main.bounds.width * 0.82, 330))
-            .background(ChatTheme.bg(mode))
-            .overlay(Rectangle().frame(width: 1).foregroundColor(ChatTheme.line(mode)), alignment: .trailing)
-            .shadow(color: Color.black.opacity(0.18), radius: 16, x: 8, y: 0)
+                .frame(width: min(proxy.size.width * 0.86, 360))
+                .background {
+                    ZStack {
+                        Rectangle().fill(.regularMaterial)
+                        ChatTheme.bg(mode).opacity(mode == .dark ? 0.62 : 0.50)
+                    }
+                }
+                .overlay(
+                    Rectangle().frame(width: 0.5).foregroundColor(ChatTheme.glassLine(mode)),
+                    alignment: .trailing
+                )
+                .shadow(color: Color.black.opacity(mode == .dark ? 0.34 : 0.16), radius: 24, x: 10, y: 0)
 
-            Button(action: { store.closeDrawer() }) {
-                ChatTheme.scrim(mode)
+                Button(action: {
+                    dismissAppKeyboard()
+                    store.closeDrawer()
+                }) {
+                    ChatTheme.scrim(mode)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close navigation")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close navigation")
         }
     }
 }

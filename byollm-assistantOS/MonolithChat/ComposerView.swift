@@ -11,6 +11,7 @@ import SwiftUI
 struct ComposerView: View {
     @ObservedObject var store: AppStore
     var mode: ChatTheme.Mode
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var focused: Bool
     @StateObject private var speechRecognizer = SpeechRecognizer()
     @State private var speechDraft = ""
@@ -124,12 +125,8 @@ struct ComposerView: View {
             .padding(.trailing, 5)
             .padding(.vertical, 5)
             .frame(minHeight: 56)
-            .background(ChatTheme.surface(mode))
-            .overlay(
-                RoundedRectangle(cornerRadius: 28)
-                    .stroke(ChatTheme.line2(mode), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 28))
+            .monolithGlass(mode: mode, cornerRadius: 30, interactive: true)
+            .shadow(color: Color.black.opacity(mode == .dark ? 0.22 : 0.07), radius: 12, y: 5)
             .padding(.horizontal, 12)
 
             HStack(spacing: 8) {
@@ -139,8 +136,12 @@ struct ComposerView: View {
                             .disabled(store.activeChat != nil || !harness.available)
                     }
                 } label: {
-                    Text(store.currentRuntimeName)
-                        .font(ChatFont.sans(11, weight: .semibold))
+                    HStack(spacing: 3) {
+                        Text(store.currentRuntimeName)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 7, weight: .bold))
+                    }
+                    .font(ChatFont.sans(11, weight: .semibold))
                 }
                 .disabled(store.activeChat != nil || store.streaming)
                 .accessibilityHint(store.activeChat == nil ? "Choose the runtime for this new chat" : "Runtime is pinned for this chat")
@@ -148,10 +149,16 @@ struct ComposerView: View {
                 Text("·")
 
                 Button(action: {
-                    withAnimation(.easeInOut(duration: 0.18)) { store.reasoningOpen.toggle() }
+                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.24, extraBounce: 0.02)) {
+                        store.reasoningOpen.toggle()
+                    }
                 }) {
-                    Text(store.reasoningEffort.title)
-                        .font(ChatFont.sans(11, weight: .semibold))
+                    HStack(spacing: 3) {
+                        Text(store.reasoningEffort.title)
+                        Image(systemName: store.reasoningOpen ? "chevron.down" : "chevron.up")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .font(ChatFont.sans(11, weight: .semibold))
                 }
                 .buttonStyle(.touch)
                 .accessibilityLabel("Reasoning effort \(store.reasoningEffort.title)")
@@ -175,7 +182,9 @@ struct ComposerView: View {
                     .accessibilityLabel("Speech to text error: \(error)")
             }
         }
+        .padding(.top, 8)
         .padding(.bottom, 8)
+        .frame(maxWidth: 760)
         .onChange(of: speechRecognizer.transcript) { _, transcript in
             store.input = SpeechTranscriptComposer.compose(draft: speechDraft, transcript: transcript)
         }
@@ -270,12 +279,14 @@ struct ReasoningEffortControl: View {
             .accessibilityElement()
             .accessibilityLabel("Reasoning effort")
             .accessibilityValue(store.reasoningEffort.title)
+            .accessibilityHint("Swipe up or down to adjust")
             .accessibilityAdjustableAction { direction in
                 var index = selectedIndex
                 index += direction == .increment ? 1 : -1
                 index = min(max(index, 0), ReasoningEffort.allCases.count - 1)
                 store.reasoningEffort = ReasoningEffort.allCases[index]
             }
+            .sensoryFeedback(.selection, trigger: store.reasoningEffort)
         }
         .padding(18)
         .background {
@@ -293,29 +304,7 @@ struct ReasoningEffortControl: View {
                 )
                 .blur(radius: 16)
         }
-        .modifier(ReasoningGlassSurface(mode: mode))
+        .monolithGlass(mode: mode, cornerRadius: 24, interactive: true)
         .shadow(color: Color.black.opacity(mode == .dark ? 0.32 : 0.14), radius: 22, y: -6)
-    }
-}
-
-private struct ReasoningGlassSurface: ViewModifier {
-    let mode: ChatTheme.Mode
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content
-                .glassEffect(
-                    .regular.tint(Color.purple.opacity(mode == .dark ? 0.14 : 0.08)).interactive(),
-                    in: .rect(cornerRadius: 24)
-                )
-        } else {
-            content
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color.white.opacity(mode == .dark ? 0.18 : 0.5), lineWidth: 1)
-                )
-        }
     }
 }

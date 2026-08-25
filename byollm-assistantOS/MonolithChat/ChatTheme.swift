@@ -73,11 +73,99 @@ enum ChatTheme {
     /// Scrim behind sheets/drawer.
     static func scrim(_ m: Mode) -> Color { m == .dark ? Color.black.opacity(0.6) : Color(hex: "060606").opacity(0.4) }
 
+    /// A quiet brand tint used only to give translucent surfaces depth.
+    static func glow(_ m: Mode) -> Color {
+        m == .dark ? Color.indigo.opacity(0.22) : Color.indigo.opacity(0.10)
+    }
+
+    /// Hairline used on translucent chrome. It deliberately stays subtle in
+    /// both appearances so glass reads as glass instead of a bordered card.
+    static func glassLine(_ m: Mode) -> Color {
+        m == .dark ? Color.white.opacity(0.13) : Color.white.opacity(0.72)
+    }
+
     // Status
     static let online = Color(hex: "26B759")
     static let testing = Color(hex: "F39A46")
     static let offline = Color(hex: "FF1B1B")
     static let unknown = Color(hex: "ABABAB")
+}
+
+// MARK: - Native surfaces
+
+/// App background with a restrained ambient tint. The gradient is decorative
+/// and remains behind semantic surfaces, preserving contrast in both themes.
+struct MonolithBackdrop: View {
+    let mode: ChatTheme.Mode
+
+    var body: some View {
+        ZStack {
+            ChatTheme.bg(mode)
+            RadialGradient(
+                colors: [ChatTheme.glow(mode), .clear],
+                center: .topTrailing,
+                startRadius: 24,
+                endRadius: 430
+            )
+            .opacity(mode == .dark ? 0.85 : 0.70)
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
+/// Uses Liquid Glass on iOS 26 and a system material on older supported
+/// releases. Keeping the fallback here prevents individual controls from
+/// drifting into separate visual treatments.
+private struct MonolithGlassSurface: ViewModifier {
+    let mode: ChatTheme.Mode
+    let cornerRadius: CGFloat
+    let interactive: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            if interactive {
+                content.glassEffect(
+                    .regular
+                        .tint(ChatTheme.glow(mode).opacity(0.45))
+                        .interactive(),
+                    in: .rect(cornerRadius: cornerRadius)
+                )
+            } else {
+                content.glassEffect(
+                    .regular.tint(ChatTheme.glow(mode).opacity(0.32)),
+                    in: .rect(cornerRadius: cornerRadius)
+                )
+            }
+        } else {
+            content
+                .background(
+                    .ultraThinMaterial,
+                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(ChatTheme.glassLine(mode), lineWidth: 0.75)
+                }
+        }
+    }
+}
+
+extension View {
+    func monolithGlass(
+        mode: ChatTheme.Mode,
+        cornerRadius: CGFloat,
+        interactive: Bool = false
+    ) -> some View {
+        modifier(
+            MonolithGlassSurface(
+                mode: mode,
+                cornerRadius: cornerRadius,
+                interactive: interactive
+            )
+        )
+    }
 }
 
 // MARK: - Typography
