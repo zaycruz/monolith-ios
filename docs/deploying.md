@@ -2,11 +2,12 @@
 
 ## TestFlight
 
-The TestFlight lane archives the Release configuration with automatic signing and uploads it through the Apple account signed into Xcode.
+The TestFlight lane archives the Release configuration, re-signs it with the team's installed App Store profile, and uploads it through Xcode or an App Store Connect API key.
 
 ### Prerequisites
 
 - Xcode is signed into the App Store Connect team `RA5ZRTAX47`, or an App Store Connect API key is available outside the repository.
+- The `Apple Distribution: Richard Cruz (RA5ZRTAX47)` certificate and `Monolith App Store` provisioning profile are installed locally.
 - App Store Connect contains the app for bundle identifier `openaccesslabs.byollm-assistantOS`.
 - `CURRENT_PROJECT_VERSION` is higher than every build already uploaded for the current marketing version.
 - The worktree is committed and the iOS, gateway, and contract test suites pass.
@@ -19,7 +20,7 @@ Run from the repository root:
 ./scripts/deploy-testflight.sh
 ```
 
-The script reads the version and build number from Xcode, writes the archive under `build/TestFlight/`, and uploads it using `scripts/testflight/ExportOptions.plist`. It refuses a dirty worktree so the uploaded binary maps to a commit. For a deliberate diagnostic build only, set `ALLOW_DIRTY_TESTFLIGHT_DEPLOY=1`.
+The script reads the version and build number from Xcode, writes the archive under `build/TestFlight/`, and uploads it using the manually signed configuration in `scripts/testflight/ExportOptions.plist`. Manual export avoids requiring access to Apple's cloud-managed distribution certificates. The script refuses a dirty worktree so the uploaded binary maps to a commit. For a deliberate diagnostic build only, set `ALLOW_DIRTY_TESTFLIGHT_DEPLOY=1`.
 
 For API-key authentication, provide all three values through the environment. Keep the `.p8` file and issuer ID out of the repository:
 
