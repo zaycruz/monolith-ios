@@ -28,7 +28,7 @@ struct ChatsListView: View {
                     .font(.system(size: 15))
                     .foregroundColor(ChatTheme.sub(mode))
                 TextField("Search your chats", text: $store.chatQuery)
-                    .font(ChatFont.sans(13.5))
+                    .font(ChatFont.sans(.callout))
                     .foregroundColor(ChatTheme.text(mode))
                     .submitLabel(.search)
                     .textInputAutocapitalization(.never)
@@ -55,13 +55,16 @@ struct ChatsListView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(store.filteredChatGroups, id: \.label) { group in
                         Text(group.label.uppercased())
-                            .font(ChatFont.sans(11, weight: .bold))
+                            .font(ChatFont.sans(.caption, weight: .bold))
                             .tracking(1)
                             .foregroundColor(ChatTheme.sub(mode))
                             .padding(.horizontal, 2)
                             .padding(.top, 12)
                             .padding(.bottom, 6)
                         ForEach(group.items) { c in
+                            let isGenerating = store.isGenerating(chatID: c.id)
+                            let isReady = store.isChatReadyForAttention(chatID: c.id)
+
                             Button(action: { store.openChat(c.id) }) {
                                 HStack(spacing: 12) {
                                     Image(systemName: ChatIcon.chat)
@@ -69,23 +72,33 @@ struct ChatsListView: View {
                                         .foregroundColor(ChatTheme.sub(mode))
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(c.title)
-                                            .font(ChatFont.sans(14, weight: .semibold))
+                                            .font(ChatFont.sans(.callout, weight: .semibold))
                                             .foregroundColor(ChatTheme.text(mode))
                                             .lineLimit(1)
                                         Text(c.time)
-                                            .font(ChatFont.sans(11.5))
+                                            .font(ChatFont.sans(.caption))
                                             .foregroundColor(ChatTheme.sub(mode))
                                     }
                                     Spacer()
-                                    Image(systemName: ChatIcon.chevronRight)
-                                        .font(.system(size: 10, weight: .bold))
-                                        .foregroundColor(ChatTheme.sub(mode))
+                                    if isGenerating {
+                                        ConversationActivityIndicator(state: .working, mode: mode)
+                                    } else if isReady {
+                                        ConversationActivityIndicator(state: .ready, mode: mode)
+                                    } else {
+                                        Image(systemName: ChatIcon.chevronRight)
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(ChatTheme.sub(mode))
+                                    }
                                 }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 13)
                                 .background(c.id == store.activeChatId ? ChatTheme.surface(mode) : Color.clear)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
-                            }.buttonStyle(.touch)
+                            }
+                            .buttonStyle(.touch)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(c.title)
+                            .accessibilityValue(isGenerating ? "Working" : isReady ? "Ready" : c.time)
                         }
                     }
 

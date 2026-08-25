@@ -107,9 +107,22 @@ final class AppStore: ObservableObject {
 
     @Published var input = ""
     @Published var attach: String?
-    @Published var streaming = false
-    @Published private(set) var cancellationSettling = false
-    @Published var tok = 0
+    @Published private var generatingChatIDs: Set<Int> = []
+    @Published private var cancellationSettlingChatIDs: Set<Int> = []
+    @Published private var tokenCountsByChatID: [Int: Int] = [:]
+    @Published private var readyRequestIDsByChatID: [Int: UUID] = [:]
+
+    var streaming: Bool {
+        activeChatId.map { isGenerating(chatID: $0) } ?? false
+    }
+
+    var cancellationSettling: Bool {
+        activeChatId.map { cancellationSettlingChatIDs.contains($0) } ?? false
+    }
+
+    var tok: Int {
+        activeChatId.flatMap { tokenCountsByChatID[$0] } ?? 0
+    }
 
     // MARK: - Servers / models
 
@@ -164,11 +177,13 @@ final class AppStore: ObservableObject {
     private var githubOperationGeneration = 0
     private var serverProbeGenerations: [Int: Int] = [:]
     private var formProbeGeneration = 0
-    private var streamTask: Task<Void, Never>?
-    private var activeStream: ActiveStream?
-    private var textFlushTask: Task<Void, Never>?
-    private var pendingStreamText = ""
-    private var pendingTextIdentity: ActiveStream?
+    private var streamTasks: [Int: Task<Void, Never>] = [:]
+    private var activeStreams: [Int: ActiveStream] = [:]
+    private var textFlushTasks: [Int: Task<Void, Never>] = [:]
+    private var pendingStreamTexts: [Int: String] = [:]
+    private var cancellationSettlementTasks: [Int: Task<Void, Never>] = [:]
+    private var cancellationSettlementIDs: [Int: UUID] = [:]
+    private var failedStreamRequestIDs: Set<UUID> = []
 
 
     enum AddStatus: Equatable { case idle, testing, ok, fail }
@@ -205,6 +220,7 @@ final class AppStore: ObservableObject {
         let requestID: UUID
         let chatID: Int
         let messageID: UUID
+        let serverID: Int
     }
 
     init(
@@ -498,6 +514,9 @@ final class AppStore: ObservableObject {
     func deleteServer(_ id: Int) {
         guard let index = servers.firstIndex(where: { $0.id == id }) else { return }
         let wasActive = servers[index].active
+        for chatID in activeStreams.values.filter({ $0.serverID == id }).map(\.chatID) {
+            cancelStream(chatID: chatID, settleCancellation: false)
+        }
         if wasActive { cancelGitHubAuthorization() }
         servers.remove(at: index)
         defaults.removeObject(forKey: "mc.model.\(id)")
@@ -751,6 +770,7 @@ final class AppStore: ObservableObject {
 
     private func activateChat(_ id: Int) {
         guard chats.contains(where: { $0.id == id }) else { return }
+        readyRequestIDsByChatID.removeValue(forKey: id)
         activeChatId = id
         let compatible = models.filter { $0.runtime == nil || $0.runtime == currentRuntime }
         if !compatible.contains(where: { $0.name == activeModel }) {
@@ -1333,27 +1353,28 @@ final class AppStore: ObservableObject {
     }
 
     private func startStream(chatId: Int) {
-        streamTask?.cancel()
-        textFlushTask?.cancel()
-        textFlushTask = nil
-        pendingStreamText = ""
-        pendingTextIdentity = nil
-        streaming = true
-        tok = 0
+        if activeStreams[chatId] != nil {
+            cancelStream(chatID: chatId, settleCancellation: false)
+        }
+        readyRequestIDsByChatID.removeValue(forKey: chatId)
+        tokenCountsByChatID[chatId] = 0
 
         // A stable per-chat ID lets the gateway preserve one runtime session.
         let chat = chats.first(where: { $0.id == chatId })
         let history: [ThreadMessage] = chat?.messages ?? []
         let agentSessionId = chat?.agentSessionId.uuidString
-        let requestMessages: [ChatMessage] = history.map { m in
+        let responseMessage = history.last(where: { $0.role == .assistant && $0.streaming })
+        let requestMessages: [ChatMessage] = history.filter { $0.id != responseMessage?.id }.map { m in
             ChatMessage(role: m.role == .user ? "user" : "assistant", content: m.role == .user ? m.text : m.blocks.plainText)
         }
 
         let personalization = PersonalizationStore().load().systemPrompt()
+        let server = activeServer
+        let canonicalServerURL = server.flatMap { serverURLIdentity($0.url) }
         let projectContext = projects.first(where: { $0.chatIds.contains(chatId) }).map { project in
             var lines = ["Project: \(project.name)", "Description: \(project.desc)"]
-            if project.repositoryServerID == activeServer?.id,
-               project.repositoryServerURL == activeServer.flatMap({ serverURLIdentity($0.url) }),
+            if project.repositoryServerID == server?.id,
+               project.repositoryServerURL == canonicalServerURL,
                let repository = project.repo,
                let connectionID = project.repositoryConnectionID {
                 lines.append("Linked repository: \(repository)")
@@ -1367,25 +1388,33 @@ final class AppStore: ObservableObject {
         let systemPrompt = [personalization, projectContext]
             .compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: "\n\n")
-        let base = activeServer.flatMap { serverURLIdentity($0.url) } ?? ""
         let model = activeModel.isEmpty ? (models.first?.name ?? "") : activeModel
 
         let runtime = chat?.runtime ?? selectedRuntime
         let modelRuntime = models.first(where: { $0.name == model })?.runtime
-        guard !base.isEmpty, !model.isEmpty,
+        guard let server, let base = canonicalServerURL, !model.isEmpty,
               modelRuntime == nil || modelRuntime == runtime,
-              let messageID = history.last(where: { $0.role == .assistant })?.id else {
-            streaming = false
+              let messageID = responseMessage?.id else {
+            if let chatIndex = chats.firstIndex(where: { $0.id == chatId }),
+               let messageIndex = chats[chatIndex].messages.lastIndex(where: { $0.role == .assistant }) {
+                chats[chatIndex].messages[messageIndex].streaming = false
+            }
             return
         }
 
-        let identity = ActiveStream(requestID: UUID(), chatID: chatId, messageID: messageID)
-        activeStream = identity
+        let identity = ActiveStream(
+            requestID: UUID(),
+            chatID: chatId,
+            messageID: messageID,
+            serverID: server.id
+        )
+        activeStreams[chatId] = identity
+        generatingChatIDs.insert(chatId)
         let effort = reasoningEffort
         let apiToken = activeServer?.apiToken
         let routesHarnesses = supportsHarnessRouting
 
-        streamTask = Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             do {
                 try await self.network.sendChatMessageStreaming(
@@ -1401,55 +1430,67 @@ final class AppStore: ObservableObject {
                         await self.receive(event, for: identity)
                     }
                 )
-                self.finishStream(identity)
+                let succeeded = !Task.isCancelled
+                    && self.failedStreamRequestIDs.remove(identity.requestID) == nil
+                if succeeded {
+                    self.markRunningTools(.failed, for: identity)
+                }
+                self.finishStream(identity, markReady: succeeded)
             } catch {
-                guard !Task.isCancelled, self.activeStream == identity else { return }
+                if Task.isCancelled {
+                    self.finishStream(identity, markReady: false)
+                    return
+                }
+                guard self.activeStreams[chatId] == identity else { return }
+                self.flushPendingText(for: identity)
                 self.appendText("\n[error: \(error.localizedDescription)]", for: identity)
-                self.finishStream(identity)
+                self.markRunningTools(.failed, for: identity)
+                self.finishStream(identity, markReady: false)
             }
         }
+        streamTasks[chatId] = task
     }
 
     private func receive(_ event: ChatStreamEvent, for identity: ActiveStream) {
-        guard activeStream == identity else { return }
+        guard activeStreams[identity.chatID] == identity else { return }
         switch event {
         case .textDelta(let text):
             queueText(text, for: identity)
         case .reasoningDelta:
-            tok += 1
+            tokenCountsByChatID[identity.chatID, default: 0] += 1
         case .toolStarted(let id, let name, let input):
             flushPendingText(for: identity)
-            mutateMessage(for: identity) { message in
-                message.blocks.append(.tool(ToolCallBlock(id: id, name: name, input: input, output: "", status: .running)))
-                message.rawStream = ""
-                message.textSegmentStart = message.blocks.count
+            upsertTool(id: id, name: name, input: input, for: identity) {
+                $0.status = .running
             }
-        case .toolUpdated(let id, let output):
+        case .toolUpdated(let id, let name, let input, let output):
             flushPendingText(for: identity)
-            upsertTool(id: id, name: "Tool", for: identity) {
-                $0.output = output
+            upsertTool(id: id, name: name, input: input, for: identity) {
+                if let output { $0.output = output }
             }
-        case .toolFinished(let id, let output, let isError):
+        case .toolFinished(let id, let name, let input, let output, let isError):
             flushPendingText(for: identity)
-            upsertTool(id: id, name: "Tool", for: identity) {
-                $0.output = output
+            upsertTool(id: id, name: name, input: input, for: identity) {
+                if let output { $0.output = output }
                 $0.status = isError ? .failed : .succeeded
             }
         case .failure(let message):
             flushPendingText(for: identity)
             appendText("\n[error: \(message)]", for: identity)
+            failedStreamRequestIDs.insert(identity.requestID)
+            markRunningTools(.failed, for: identity)
+        case .cancelled:
+            flushPendingText(for: identity)
+            markRunningTools(.cancelled, for: identity)
+            streamTasks[identity.chatID]?.cancel()
         }
     }
 
     private func queueText(_ chunk: String, for identity: ActiveStream) {
-        guard activeStream == identity else { return }
-        if let pendingTextIdentity, pendingTextIdentity != identity {
-            flushPendingText(for: pendingTextIdentity)
-        }
-        pendingTextIdentity = identity
-        pendingStreamText += chunk
-        guard textFlushTask == nil else { return }
-        textFlushTask = Task { [weak self] in
+        guard activeStreams[identity.chatID] == identity else { return }
+        pendingStreamTexts[identity.chatID, default: ""] += chunk
+        guard textFlushTasks[identity.chatID] == nil else { return }
+        textFlushTasks[identity.chatID] = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 16_000_000)
             guard !Task.isCancelled else { return }
             self?.flushPendingText(for: identity)
@@ -1457,14 +1498,10 @@ final class AppStore: ObservableObject {
     }
 
     private func flushPendingText(for identity: ActiveStream) {
-        textFlushTask?.cancel()
-        textFlushTask = nil
-        guard pendingTextIdentity == identity, !pendingStreamText.isEmpty else {
-            return
-        }
-        let text = pendingStreamText
-        pendingStreamText = ""
-        pendingTextIdentity = nil
+        textFlushTasks.removeValue(forKey: identity.chatID)?.cancel()
+        guard activeStreams[identity.chatID] == identity,
+              let text = pendingStreamTexts.removeValue(forKey: identity.chatID),
+              !text.isEmpty else { return }
         appendText(text, for: identity)
     }
 
@@ -1475,11 +1512,11 @@ final class AppStore: ObservableObject {
             let segment = msg.rawStream.contains("```") ? MessageBlock.parse(msg.rawStream) : [.text(msg.rawStream)]
             msg.blocks = prefix + segment
         }
-        tok += 1
+        tokenCountsByChatID[identity.chatID, default: 0] += 1
     }
 
     private func mutateMessage(for identity: ActiveStream, _ mutate: (inout ThreadMessage) -> Void) {
-        guard activeStream == identity,
+        guard activeStreams[identity.chatID] == identity,
               let ci = chats.firstIndex(where: { $0.id == identity.chatID }),
               let mi = chats[ci].messages.firstIndex(where: { $0.id == identity.messageID }) else { return }
         var msg = chats[ci].messages[mi]
@@ -1489,7 +1526,8 @@ final class AppStore: ObservableObject {
 
     private func upsertTool(
         id: String,
-        name: String,
+        name: String?,
+        input: String?,
         for identity: ActiveStream,
         _ mutate: (inout ToolCallBlock) -> Void
     ) {
@@ -1498,11 +1536,19 @@ final class AppStore: ObservableObject {
                 if case .tool(let tool) = $0 { return tool.id == id }
                 return false
             }), case .tool(var tool) = message.blocks[index] {
+                if let name, !name.isEmpty { tool.name = name }
+                if let input, !input.isEmpty { tool.input = input }
                 mutate(&tool)
                 message.blocks[index] = .tool(tool)
                 return
             }
-            var tool = ToolCallBlock(id: id, name: name, input: "", output: "", status: .running)
+            var tool = ToolCallBlock(
+                id: id,
+                name: (name?.isEmpty == false ? name : nil) ?? "Tool",
+                input: input ?? "",
+                output: "",
+                status: .running
+            )
             mutate(&tool)
             message.blocks.append(.tool(tool))
             message.rawStream = ""
@@ -1510,25 +1556,47 @@ final class AppStore: ObservableObject {
         }
     }
 
-    private func finishStream(_ identity: ActiveStream) {
-        guard activeStream == identity else { return }
+    private func markRunningTools(_ status: ToolCallStatus, for identity: ActiveStream) {
+        mutateMessage(for: identity) { message in
+            message.blocks = message.blocks.map { block in
+                guard case .tool(var tool) = block, tool.status == .running else { return block }
+                tool.status = status
+                return .tool(tool)
+            }
+        }
+    }
+
+    private func finishStream(_ identity: ActiveStream, markReady: Bool) {
+        guard activeStreams[identity.chatID] == identity else { return }
         flushPendingText(for: identity)
         mutateMessage(for: identity) { $0.streaming = false }
-        activeStream = nil
-        streamTask = nil
-        streaming = false
+        failedStreamRequestIDs.remove(identity.requestID)
+        activeStreams.removeValue(forKey: identity.chatID)
+        streamTasks.removeValue(forKey: identity.chatID)
+        generatingChatIDs.remove(identity.chatID)
+        let isVisible = activeChatId == identity.chatID && screen == .chat && !drawer
+        if markReady && !isVisible {
+            readyRequestIDsByChatID[identity.chatID] = identity.requestID
+        }
     }
 
     func stop() {
-        guard let identity = activeStream else { return }
+        guard let chatID = activeChatId else { return }
+        cancelStream(chatID: chatID, settleCancellation: true)
+    }
+
+    func stop(chatID: Int) {
+        cancelStream(chatID: chatID, settleCancellation: true)
+    }
+
+    private func cancelStream(chatID: Int, settleCancellation: Bool) {
+        guard let identity = activeStreams[chatID] else { return }
         flushPendingText(for: identity)
-        activeStream = nil
-        textFlushTask?.cancel()
-        textFlushTask = nil
-        pendingStreamText = ""
-        pendingTextIdentity = nil
-        streamTask?.cancel()
-        streamTask = nil
+        activeStreams.removeValue(forKey: chatID)
+        failedStreamRequestIDs.remove(identity.requestID)
+        textFlushTasks.removeValue(forKey: chatID)?.cancel()
+        pendingStreamTexts.removeValue(forKey: chatID)
+        streamTasks.removeValue(forKey: chatID)?.cancel()
         if let ci = chats.firstIndex(where: { $0.id == identity.chatID }),
            let mi = chats[ci].messages.firstIndex(where: { $0.id == identity.messageID }) {
             chats[ci].messages[mi].streaming = false
@@ -1538,16 +1606,24 @@ final class AppStore: ObservableObject {
                 return .tool(tool)
             }
         }
-        streaming = false
-        cancellationSettling = true
-        Task { [weak self] in
+        generatingChatIDs.remove(chatID)
+        guard settleCancellation else { return }
+
+        cancellationSettlementTasks.removeValue(forKey: chatID)?.cancel()
+        let settlementID = UUID()
+        cancellationSettlementIDs[chatID] = settlementID
+        cancellationSettlingChatIDs.insert(chatID)
+        cancellationSettlementTasks[chatID] = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 850_000_000)
-            self?.cancellationSettling = false
+            guard let self, self.cancellationSettlementIDs[chatID] == settlementID else { return }
+            self.cancellationSettlementIDs.removeValue(forKey: chatID)
+            self.cancellationSettlementTasks.removeValue(forKey: chatID)
+            self.cancellationSettlingChatIDs.remove(chatID)
         }
     }
 
     func regen() {
-        guard !cancellationSettling else { return }
+        guard !cancellationSettling, !streaming else { return }
         guard let id = activeChatId, let ci = chats.firstIndex(where: { $0.id == id }) else { return }
         if !chats[ci].messages.isEmpty {
             chats[ci].messages.removeLast() // drop last assistant reply
@@ -1558,6 +1634,14 @@ final class AppStore: ObservableObject {
 
 
     var activeChat: Chat? { chats.first(where: { $0.id == activeChatId }) }
+
+    func isGenerating(chatID: Int) -> Bool {
+        generatingChatIDs.contains(chatID)
+    }
+
+    func isChatReadyForAttention(chatID: Int) -> Bool {
+        readyRequestIDsByChatID[chatID] != nil
+    }
 
     var activeServerStatusLine: String {
         guard let s = activeServer else { return "No server configured" }
@@ -1619,13 +1703,14 @@ extension Array where Element == MessageBlock {
             case .code(_, let t): return t
             case .tool(let tool): return "Tool \(tool.name): \(tool.status)"
             }
-        }.joined()
+        }.joined(separator: "\n\n")
     }
 }
 
 extension MessageBlock {
     /// Split raw streamed text into text/code blocks on ``` fences.
     static func parse(_ raw: String) -> [MessageBlock] {
+        let raw = raw.replacingOccurrences(of: "\r\n", with: "\n")
         var blocks: [MessageBlock] = []
         var rest = raw
         while let start = rest.range(of: "```") {
@@ -1633,7 +1718,8 @@ extension MessageBlock {
             if !before.isEmpty { blocks.append(.text(before)) }
             let afterOpen = rest[start.upperBound...]
             guard let newline = afterOpen.firstIndex(of: "\n") else {
-                blocks.append(.text(String(rest[start.lowerBound...])))
+                let lang = String(afterOpen).trimmingCharacters(in: .whitespacesAndNewlines)
+                blocks.append(.code(lang: lang, text: ""))
                 return blocks
             }
             let lang = String(afterOpen[..<newline]).trimmingCharacters(in: .whitespaces)
@@ -1642,8 +1728,9 @@ extension MessageBlock {
                 blocks.append(.code(lang: lang, text: String(afterLang)))
                 return blocks
             }
-            let code = String(afterLang[..<close.lowerBound])
-            blocks.append(.code(lang: lang, text: code.trimmingCharacters(in: .newlines)))
+            var code = String(afterLang[..<close.lowerBound])
+            if code.hasSuffix("\n") { code.removeLast() }
+            blocks.append(.code(lang: lang, text: code))
             rest = String(afterLang[close.upperBound...])
         }
         if !rest.isEmpty { blocks.append(.text(rest)) }

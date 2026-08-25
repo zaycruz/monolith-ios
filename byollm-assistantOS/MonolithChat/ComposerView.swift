@@ -38,7 +38,7 @@ struct ComposerView: View {
                             .font(.system(size: 14))
                             .foregroundColor(ChatTheme.text(mode))
                         Text(attachment)
-                            .font(ChatFont.sans(12, weight: .semibold))
+                            .font(ChatFont.sans(.footnote, weight: .semibold))
                             .foregroundColor(ChatTheme.text(mode))
                             .lineLimit(1)
                         Button(action: { store.clearAttach() }) {
@@ -73,7 +73,7 @@ struct ComposerView: View {
                 .accessibilityLabel("Add attachment")
 
                 TextField("Ask anything", text: $store.input, axis: .vertical)
-                    .font(ChatFont.sans(15))
+                    .font(ChatFont.sans(.subheadline))
                     .foregroundColor(ChatTheme.text(mode))
                     .focused($focused)
                     .lineLimit(1...6)
@@ -141,7 +141,7 @@ struct ComposerView: View {
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 7, weight: .bold))
                     }
-                    .font(ChatFont.sans(11, weight: .semibold))
+                    .font(ChatFont.sans(.caption2, weight: .semibold))
                 }
                 .disabled(store.activeChat != nil || store.streaming)
                 .accessibilityHint(store.activeChat == nil ? "Choose the runtime for this new chat" : "Runtime is pinned for this chat")
@@ -158,7 +158,7 @@ struct ComposerView: View {
                         Image(systemName: store.reasoningOpen ? "chevron.down" : "chevron.up")
                             .font(.system(size: 8, weight: .bold))
                     }
-                    .font(ChatFont.sans(11, weight: .semibold))
+                    .font(ChatFont.sans(.caption2, weight: .semibold))
                 }
                 .buttonStyle(.touch)
                 .accessibilityLabel("Reasoning effort \(store.reasoningEffort.title)")
@@ -166,7 +166,7 @@ struct ComposerView: View {
                 Text("· \(store.activeServer?.name ?? "No server") · \(store.activeModelShort)")
                     .lineLimit(1)
             }
-            .font(ChatFont.sans(11))
+            .font(ChatFont.sans(.caption2))
             .foregroundColor(ChatTheme.sub(mode))
             .frame(maxWidth: .infinity)
             .padding(.top, 4)
@@ -174,7 +174,7 @@ struct ComposerView: View {
 
             if let error = speechRecognizer.errorMessage {
                 Text(error)
-                    .font(ChatFont.sans(11, weight: .semibold))
+                    .font(ChatFont.sans(.caption, weight: .semibold))
                     .foregroundColor(.red)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 18)
@@ -236,7 +236,7 @@ struct ReasoningEffortControl: View {
     var body: some View {
         VStack(spacing: 12) {
             Text("\(store.activeModelShort) \(store.reasoningEffort.title)")
-                .font(ChatFont.sans(15, weight: .bold))
+                .font(ChatFont.sans(.subheadline, weight: .bold))
                 .foregroundColor(ChatTheme.text(mode))
 
             GeometryReader { proxy in

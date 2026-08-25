@@ -12,9 +12,10 @@ enum ChatStreamEvent: Equatable, Sendable {
     case textDelta(String)
     case reasoningDelta(String)
     case toolStarted(id: String, name: String, input: String)
-    case toolUpdated(id: String, output: String)
-    case toolFinished(id: String, output: String, isError: Bool)
+    case toolUpdated(id: String, name: String?, input: String?, output: String?)
+    case toolFinished(id: String, name: String?, input: String?, output: String?, isError: Bool)
     case failure(String)
+    case cancelled
 }
 
 struct RemoteModel: Equatable, Sendable {
@@ -356,15 +357,50 @@ struct MonolithStreamEvent: Codable {
             return .toolStarted(id: id, name: name, input: input?.text ?? "")
         case "tool_updated":
             guard let id else { return nil }
-            return .toolUpdated(id: id, output: output?.text ?? "")
+            return .toolUpdated(id: id, name: name, input: input?.text, output: output?.text)
         case "tool_finished":
             guard let id else { return nil }
-            return .toolFinished(id: id, output: output?.text ?? "", isError: isError ?? false)
+            return .toolFinished(
+                id: id,
+                name: name,
+                input: input?.text,
+                output: output?.text,
+                isError: isError ?? false
+            )
         case "error":
             return .failure(message ?? output?.text ?? "The runtime failed")
+        case "cancelled":
+            return .cancelled
         default:
             return nil
         }
+    }
+}
+
+struct ServerSentEventDecoder {
+    private(set) var sawDone = false
+
+    mutating func decode(_ rawLine: String) throws -> ChatStreamResponse? {
+        let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty, line.hasPrefix("data:") else { return nil }
+
+        let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+        if payload == "[DONE]" {
+            sawDone = true
+            return nil
+        }
+        guard !payload.isEmpty, let data = payload.data(using: .utf8) else {
+            throw NetworkManager.NetworkError.invalidStreamFrame
+        }
+        do {
+            return try JSONDecoder().decode(ChatStreamResponse.self, from: data)
+        } catch {
+            throw NetworkManager.NetworkError.invalidStreamFrame
+        }
+    }
+
+    func validateCompletion() throws {
+        guard sawDone else { throw NetworkManager.NetworkError.incompleteStream }
     }
 }
 
@@ -951,14 +987,9 @@ final class NetworkManager: MonolithNetworkClient {
             throw NetworkError.serverError(statusCode: httpResponse.statusCode)
         }
         
+        var decoder = ServerSentEventDecoder()
         for try await rawLine in asyncBytes.lines {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty, line != "data: [DONE]", line.hasPrefix("data: ") else { continue }
-
-            let json = line.dropFirst(6)
-            guard let data = String(json).data(using: .utf8) else { continue }
-            do {
-                let streamResponse = try JSONDecoder().decode(ChatStreamResponse.self, from: data)
+            if let streamResponse = try decoder.decode(rawLine) {
                 if let event = streamResponse.monolithEvent?.event {
                     await onStructuredEvent(event)
                 }
@@ -971,10 +1002,10 @@ final class NetworkManager: MonolithNetworkClient {
                 if let content = streamResponse.choices.first?.delta.content {
                     await onChunk(content)
                 }
-            } catch {
-                print("⚠️ Failed to parse SSE event: \(error)")
             }
+            if decoder.sawDone { break }
         }
+        try decoder.validateCompletion()
     }
     
     enum NetworkError: LocalizedError {
@@ -984,6 +1015,8 @@ final class NetworkManager: MonolithNetworkClient {
         case serverError(statusCode: Int)
         case noContent
         case insecureAuthenticatedTransport
+        case invalidStreamFrame
+        case incompleteStream
         
         var errorDescription: String? {
             switch self {
@@ -999,6 +1032,10 @@ final class NetworkManager: MonolithNetworkClient {
                 return "No content received from server"
             case .insecureAuthenticatedTransport:
                 return "Authenticated servers must use HTTPS unless they run on this device."
+            case .invalidStreamFrame:
+                return "The server sent an invalid streaming response."
+            case .incompleteStream:
+                return "The streaming response ended before it completed."
             }
         }
     }

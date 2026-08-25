@@ -32,7 +32,7 @@ struct ChatView: View {
                         }
                         if store.streaming {
                             Text(store.statLine)
-                                .font(ChatFont.mono(11))
+                                .font(ChatFont.mono(.caption))
                                 .foregroundColor(ChatTheme.sub(mode))
                                 .padding(.leading, 36)
                         }
@@ -72,7 +72,7 @@ struct MessageRowView: View {
             HStack {
                 Spacer()
                 Text(msg.text)
-                    .font(ChatFont.sans(14.5))
+                    .font(ChatFont.sans(.callout))
                     .lineSpacing(4)
                     .foregroundColor(ChatTheme.bubbletext(mode))
                     .padding(.horizontal, 15)
@@ -86,11 +86,11 @@ struct MessageRowView: View {
             HStack(alignment: .top, spacing: 10) {
                 AssistantAvatar(mode: mode)
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(msg.blocks.enumerated()), id: \.element.id) { bi, block in
+                    ForEach(Array(msg.blocks.enumerated()), id: \.offset) { bi, block in
                         switch block {
                         case .text(let text):
                             MarkdownText(content: text)
-                                .font(ChatFont.sans(15))
+                                .font(ChatFont.sans(.body))
                                 .lineSpacing(6)
                                 .foregroundColor(ChatTheme.text(mode))
                                 .textSelection(.enabled)
@@ -111,7 +111,7 @@ struct MessageRowView: View {
                     if isLast && !streaming && !msg.blocks.isEmpty {
                         Button(action: { store.regen() }) {
                             Label("Regenerate", systemImage: "arrow.clockwise")
-                                .font(ChatFont.sans(12, weight: .bold))
+                                .font(ChatFont.sans(.footnote, weight: .semibold))
                                 .foregroundColor(ChatTheme.sub(mode))
                                 .padding(.horizontal, 12)
                                 .overlay(
@@ -159,10 +159,10 @@ struct ToolCallRow: View {
                         .font(.system(size: 13, weight: .semibold))
                         .symbolEffect(.rotate, options: .repeating, isActive: tool.status == .running)
                     Text(tool.name)
-                        .font(ChatFont.sans(13, weight: .bold))
+                        .font(ChatFont.sans(.subheadline, weight: .semibold))
                     Spacer()
                     Text(statusLabel)
-                        .font(ChatFont.sans(11, weight: .semibold))
+                        .font(ChatFont.sans(.caption, weight: .semibold))
                         .foregroundColor(ChatTheme.sub(mode))
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 10, weight: .bold))
@@ -172,13 +172,13 @@ struct ToolCallRow: View {
                 if expanded {
                     if !tool.input.isEmpty {
                         Text(tool.input)
-                            .font(ChatFont.mono(11))
+                            .font(ChatFont.mono(.caption))
                             .foregroundColor(ChatTheme.sub(mode))
                             .lineLimit(8)
                     }
                     if !tool.output.isEmpty {
                         Text(tool.output)
-                            .font(ChatFont.mono(11))
+                            .font(ChatFont.mono(.caption))
                             .foregroundColor(ChatTheme.text(mode))
                             .lineLimit(12)
                     }
@@ -208,7 +208,7 @@ struct CodeBlockView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(lang.uppercased())
-                    .font(ChatFont.sans(11, weight: .bold))
+                    .font(ChatFont.sans(.caption2, weight: .bold))
                     .tracking(1)
                     .foregroundColor(ChatTheme.sub(.dark))
                 Spacer()
@@ -220,7 +220,7 @@ struct CodeBlockView: View {
                     }
                 }) {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                        .font(ChatFont.sans(11, weight: .semibold))
+                        .font(ChatFont.sans(.caption2, weight: .semibold))
                         .foregroundColor(ChatTheme.sub(.dark))
                         .padding(.horizontal, 8)
                 }
@@ -233,7 +233,7 @@ struct CodeBlockView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
-                    .font(ChatFont.mono(12))
+                    .font(ChatFont.mono(.caption))
                     .lineSpacing(5)
                     .foregroundColor(ChatTheme.codetext(mode))
                     .padding(.horizontal, 14)

@@ -171,10 +171,19 @@ extension View {
 // MARK: - Typography
 /// Plus Jakarta Sans when bundled; falls back to system rounded/sans.
 enum ChatFont {
+    static func sans(_ style: Font.TextStyle, weight: Font.Weight = .regular) -> Font {
+        .system(style, design: .default, weight: weight)
+    }
+
     static func sans(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         // Graceful fallback: system sans at the design's weights.
         .system(size: size, weight: weight)
     }
+
+    static func mono(_ style: Font.TextStyle, weight: Font.Weight = .regular) -> Font {
+        .system(style, design: .monospaced, weight: weight)
+    }
+
     static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
     }

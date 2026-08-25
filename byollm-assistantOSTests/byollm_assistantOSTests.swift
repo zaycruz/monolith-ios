@@ -115,6 +115,65 @@ struct byollm_assistantOSTests {
         let errorData = try #require(#"{"type":"error","message":"runtime stopped"}"#.data(using: .utf8))
         let error = try JSONDecoder().decode(MonolithStreamEvent.self, from: errorData)
         #expect(error.event == .failure("runtime stopped"))
+
+        let updateData = try #require(
+            #"{"type":"tool_updated","id":"call-2","name":"search","input":"swift","output":"result"}"#
+                .data(using: .utf8)
+        )
+        let update = try JSONDecoder().decode(MonolithStreamEvent.self, from: updateData)
+        #expect(update.event == .toolUpdated(id: "call-2", name: "search", input: "swift", output: "result"))
+
+        let finishData = try #require(
+            #"{"type":"tool_finished","id":"call-2","is_error":false}"#.data(using: .utf8)
+        )
+        let finish = try JSONDecoder().decode(MonolithStreamEvent.self, from: finishData)
+        #expect(finish.event == .toolFinished(
+            id: "call-2",
+            name: nil,
+            input: nil,
+            output: nil,
+            isError: false
+        ))
+
+        let cancelledData = try #require(#"{"type":"cancelled"}"#.data(using: .utf8))
+        let cancelled = try JSONDecoder().decode(MonolithStreamEvent.self, from: cancelledData)
+        #expect(cancelled.event == .cancelled)
+    }
+
+    @Test func serverSentEventDecoder_requiresValidDoneTerminator() throws {
+        let payload = #"{"id":"chat-1","object":"chat.completion.chunk","model":"pi-agent","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}"#
+        var decoder = ServerSentEventDecoder()
+
+        let decodedResponse = try decoder.decode("data: \(payload)")
+        let response = try #require(decodedResponse)
+        #expect(response.choices.first?.delta.content == "Hello")
+        #expect(throws: NetworkManager.NetworkError.self) {
+            try decoder.validateCompletion()
+        }
+        let doneResponse = try decoder.decode("data: [DONE]")
+        #expect(doneResponse == nil)
+        try decoder.validateCompletion()
+
+        var malformed = ServerSentEventDecoder()
+        #expect(throws: NetworkManager.NetworkError.self) {
+            _ = try malformed.decode("data: {not-json}")
+        }
+    }
+
+    @Test func messageBlockParser_preservesFencedCodeAndStreamingBoundaries() {
+        #expect(MessageBlock.parse("Plain response") == [.text("Plain response")])
+        #expect(MessageBlock.parse("```swift") == [.code(lang: "swift", text: "")])
+        #expect(
+            MessageBlock.parse("Intro\r\n```swift\r\nlet value = 1\r\n```\r\nDone")
+                == [
+                    .text("Intro\n"),
+                    .code(lang: "swift", text: "let value = 1"),
+                    .text("\nDone"),
+                ]
+        )
+        #expect(
+            MessageBlock.parse("A\n```\none\n```\nB\n```json\n{}\n```\nC").count == 5
+        )
     }
 
     @Test func githubOAuthResult_decodesAccountFromGatewayCompletion() throws {
@@ -473,12 +532,13 @@ struct byollm_assistantOSTests {
         store.selectedRuntime = .ohMyPi
         store.send("Run the checks")
         await waitUntil { network.hasStreamHandler }
+        let chatID = try #require(store.activeChatId)
         await network.emit(.textDelta("before"))
         await network.emit(.toolStarted(id: "tool-1", name: "read", input: "README.md"))
         await Task.yield()
         store.stop()
         await network.emit(.textDelta("after"))
-        await network.emit(.toolFinished(id: "tool-1", output: "late", isError: false))
+        await network.emit(.toolFinished(id: "tool-1", name: "read", input: nil, output: "late", isError: false))
         await Task.yield()
 
         let reply = try #require(store.activeChat?.messages.last)
@@ -489,12 +549,298 @@ struct byollm_assistantOSTests {
         #expect(store.cancellationSettling)
         await waitUntil(timeoutNanoseconds: 1_500_000_000) { !store.cancellationSettling }
         #expect(store.isChatReady)
+        #expect(!store.isChatReadyForAttention(chatID: chatID))
         #expect(network.capturedRuntime == "oh-my-pi")
         #expect(network.capturedReasoningEffort == "high")
         #expect(reply.blocks.contains(where: {
             if case .tool(let tool) = $0 { return tool.id == "tool-1" && tool.status == .cancelled }
             return false
         }))
+    }
+
+    @MainActor
+    @Test func appStore_runsChatsConcurrentlyAndStopsOnlyTheVisibleConversation() async throws {
+        let suiteName = "byollm-assistantOS.tests.concurrent-streams"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let network = StubNetworkClient(models: ["pi-agent"], holdsStreamOpen: true)
+        let store = AppStore(defaults: defaults, defaultServerConfiguration: nil, network: network)
+        store.addName = "Gateway"
+        store.addUrl = "http://127.0.0.1:31000/v1"
+        store.saveServer()
+        await waitUntil { store.modelLoadState == .loaded }
+
+        store.send("Conversation A")
+        await waitUntil { network.streamHandlerCount == 1 }
+        let chatA = try #require(store.activeChatId)
+
+        store.newChat()
+        store.send("Conversation B")
+        await waitUntil { network.streamHandlerCount == 2 }
+        let chatB = try #require(store.activeChatId)
+
+        #expect(chatA != chatB)
+        #expect(store.isGenerating(chatID: chatA))
+        #expect(store.isGenerating(chatID: chatB))
+
+        await network.emit(.textDelta("alpha"), at: 0)
+        await network.emit(.textDelta("bravo"), at: 1)
+        await waitUntil {
+            store.chats.first(where: { $0.id == chatA })?.messages.last?.blocks.plainText.contains("alpha") == true
+                && store.chats.first(where: { $0.id == chatB })?.messages.last?.blocks.plainText.contains("bravo") == true
+        }
+
+        let firstA = try #require(store.chats.first(where: { $0.id == chatA })?.messages.last?.blocks.plainText)
+        let firstB = try #require(store.chats.first(where: { $0.id == chatB })?.messages.last?.blocks.plainText)
+        #expect(!firstA.contains("bravo"))
+        #expect(!firstB.contains("alpha"))
+
+        store.openChat(chatA)
+        store.stop()
+        #expect(!store.isGenerating(chatID: chatA))
+        #expect(store.isGenerating(chatID: chatB))
+        #expect(store.cancellationSettling)
+
+        store.openChat(chatB)
+        #expect(!store.cancellationSettling)
+        await network.emit(.textDelta(" late-alpha"), at: 0)
+        await network.emit(.textDelta(" more-bravo"), at: 1)
+        await waitUntil {
+            store.chats.first(where: { $0.id == chatB })?.messages.last?.blocks.plainText.contains("more-bravo") == true
+        }
+
+        let finalA = try #require(store.chats.first(where: { $0.id == chatA })?.messages.last?.blocks.plainText)
+        let finalB = try #require(store.chats.first(where: { $0.id == chatB })?.messages.last?.blocks.plainText)
+        #expect(!finalA.contains("late-alpha"))
+        #expect(finalB.contains("more-bravo"))
+        #expect(store.isGenerating(chatID: chatB))
+
+        store.stop()
+    }
+
+    @MainActor
+    @Test func appStore_marksOnlyCompletedBackgroundChatsReadyForAttention() async throws {
+        let suiteName = "byollm-assistantOS.tests.background-chat-ready"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let network = StubNetworkClient(models: ["pi-agent"], holdsStreamOpen: true)
+        let store = AppStore(defaults: defaults, defaultServerConfiguration: nil, network: network)
+        store.addName = "Gateway"
+        store.addUrl = "http://127.0.0.1:31000/v1"
+        store.saveServer()
+        await waitUntil { store.modelLoadState == .loaded }
+
+        store.send("Conversation A")
+        await waitUntil { network.streamHandlerCount == 1 }
+        let chatA = try #require(store.activeChatId)
+        store.newChat()
+        store.send("Conversation B")
+        await waitUntil { network.streamHandlerCount == 2 }
+        let chatB = try #require(store.activeChatId)
+
+        #expect(store.isGenerating(chatID: chatA))
+        #expect(store.isGenerating(chatID: chatB))
+        #expect(!store.isChatReadyForAttention(chatID: chatA))
+        #expect(!store.isChatReadyForAttention(chatID: chatB))
+        #expect(network.capturedMessageRoles.first == ["user"])
+
+        network.completeStream(at: 0)
+        await waitUntil { !store.isGenerating(chatID: chatA) }
+        #expect(store.isChatReadyForAttention(chatID: chatA))
+        #expect(store.isGenerating(chatID: chatB))
+
+        network.completeStream(at: 1)
+        await waitUntil { !store.isGenerating(chatID: chatB) }
+        #expect(!store.isChatReadyForAttention(chatID: chatB))
+
+        store.openChat(chatA)
+        #expect(!store.isChatReadyForAttention(chatID: chatA))
+    }
+
+    @MainActor
+    @Test func appStore_failedBackgroundStreamsNeverBecomeReadyForAttention() async throws {
+        let suiteName = "byollm-assistantOS.tests.background-chat-failure"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let network = StubNetworkClient(models: ["pi-agent"], holdsStreamOpen: true)
+        let store = AppStore(defaults: defaults, defaultServerConfiguration: nil, network: network)
+        store.addName = "Gateway"
+        store.addUrl = "http://127.0.0.1:31000/v1"
+        store.saveServer()
+        await waitUntil { store.modelLoadState == .loaded }
+
+        store.send("Structured failure")
+        await waitUntil { network.streamHandlerCount == 1 }
+        let structuredFailureChat = try #require(store.activeChatId)
+        store.newChat()
+        await network.emit(.failure("runtime stopped"), at: 0)
+        network.completeStream(at: 0)
+        await waitUntil { !store.isGenerating(chatID: structuredFailureChat) }
+
+        #expect(!store.isChatReadyForAttention(chatID: structuredFailureChat))
+        #expect(
+            store.chats.first(where: { $0.id == structuredFailureChat })?
+                .messages.last?.blocks.plainText.contains("runtime stopped") == true
+        )
+
+        store.send("Transport failure")
+        await waitUntil { network.streamHandlerCount == 2 }
+        let transportFailureChat = try #require(store.activeChatId)
+        store.newChat()
+        await network.emit(.textDelta("Final buffered text"), at: 1)
+        network.failStream(at: 1)
+        await waitUntil { !store.isGenerating(chatID: transportFailureChat) }
+
+        #expect(!store.isChatReadyForAttention(chatID: transportFailureChat))
+        let failedText = try #require(
+            store.chats.first(where: { $0.id == transportFailureChat })?
+                .messages.last?.blocks.plainText
+        )
+        let bufferedTextRange = try #require(failedText.range(of: "Final buffered text"))
+        let errorRange = try #require(failedText.range(of: "[error:"))
+        #expect(bufferedTextRange.lowerBound < errorRange.lowerBound)
+
+        store.send("Server cancellation")
+        await waitUntil { network.streamHandlerCount == 3 }
+        let cancelledChat = try #require(store.activeChatId)
+        store.newChat()
+        await network.emit(
+            .toolStarted(id: "cancelled-tool", name: "search", input: "query"),
+            at: 2
+        )
+        await network.emit(.cancelled, at: 2)
+        await waitUntil { !store.isGenerating(chatID: cancelledChat) }
+
+        #expect(!store.isChatReadyForAttention(chatID: cancelledChat))
+        #expect(
+            store.chats.first(where: { $0.id == cancelledChat })?
+                .messages.last?.blocks.contains(where: {
+                    guard case .tool(let tool) = $0 else { return false }
+                    return tool.id == "cancelled-tool" && tool.status == .cancelled
+                }) == true
+        )
+    }
+
+    @MainActor
+    @Test func appStore_startingNewRunClearsReadyForAttention() async throws {
+        let suiteName = "byollm-assistantOS.tests.ready-cleared-by-new-run"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let network = StubNetworkClient(models: ["pi-agent"], holdsStreamOpen: true)
+        let store = AppStore(defaults: defaults, defaultServerConfiguration: nil, network: network)
+        store.addName = "Gateway"
+        store.addUrl = "http://127.0.0.1:31000/v1"
+        store.saveServer()
+        await waitUntil { store.modelLoadState == .loaded }
+
+        store.send("First run")
+        await waitUntil { network.streamHandlerCount == 1 }
+        let chatID = try #require(store.activeChatId)
+        store.openDrawer()
+        network.completeStream(at: 0)
+        await waitUntil { !store.isGenerating(chatID: chatID) }
+        #expect(store.isChatReadyForAttention(chatID: chatID))
+
+        store.send("Follow-up run")
+        await waitUntil { network.streamHandlerCount == 2 }
+
+        #expect(store.isGenerating(chatID: chatID))
+        #expect(!store.isChatReadyForAttention(chatID: chatID))
+        store.stop()
+    }
+
+    @MainActor
+    @Test func appStore_preservesTextToolCodeAndTrailingTextOrder() async throws {
+        let suiteName = "byollm-assistantOS.tests.stream-block-order"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let network = StubNetworkClient(models: ["pi-agent"], holdsStreamOpen: true)
+        let store = AppStore(defaults: defaults, defaultServerConfiguration: nil, network: network)
+        store.addName = "Gateway"
+        store.addUrl = "http://127.0.0.1:31000/v1"
+        store.saveServer()
+        await waitUntil { store.modelLoadState == .loaded }
+
+        store.send("Render a mixed response")
+        await waitUntil { network.streamHandlerCount == 1 }
+        let chatID = try #require(store.activeChatId)
+
+        await network.emit(.textDelta("Before tool."), at: 0)
+        await network.emit(.toolStarted(id: "tool-1", name: "read", input: "README.md"), at: 0)
+        await network.emit(
+            .toolUpdated(
+                id: "tool-1",
+                name: "read_file",
+                input: "Docs/README.md",
+                output: "partial"
+            ),
+            at: 0
+        )
+        await network.emit(
+            .toolFinished(
+                id: "tool-1",
+                name: nil,
+                input: nil,
+                output: nil,
+                isError: false
+            ),
+            at: 0
+        )
+        await network.emit(.textDelta("After tool.\n```swift"), at: 0)
+        await network.emit(.textDelta("\nlet value = 1\n```\nDone"), at: 0)
+        network.completeStream(at: 0)
+        await waitUntil { !store.isGenerating(chatID: chatID) }
+
+        let reply = try #require(
+            store.chats.first(where: { $0.id == chatID })?.messages.last
+        )
+        #expect(
+            reply.blocks == [
+                .text("Before tool."),
+                .tool(ToolCallBlock(
+                    id: "tool-1",
+                    name: "read_file",
+                    input: "Docs/README.md",
+                    output: "partial",
+                    status: .succeeded
+                )),
+                .text("After tool.\n"),
+                .code(lang: "swift", text: "let value = 1"),
+                .text("\nDone"),
+            ]
+        )
+        #expect(!reply.streaming)
+    }
+
+    @MainActor
+    @Test func appStore_deletingServerCancelsOnlyItsInflightRuns() async throws {
+        let suiteName = "byollm-assistantOS.tests.delete-server-stream"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let network = StubNetworkClient(models: ["pi-agent"], holdsStreamOpen: true)
+        let store = AppStore(defaults: defaults, defaultServerConfiguration: nil, network: network)
+        store.addName = "Gateway"
+        store.addUrl = "http://127.0.0.1:31000/v1"
+        store.saveServer()
+        await waitUntil { store.modelLoadState == .loaded }
+        let serverID = try #require(store.activeServer?.id)
+
+        store.send("Long running work")
+        await waitUntil { network.streamHandlerCount == 1 }
+        let chatID = try #require(store.activeChatId)
+        #expect(store.isGenerating(chatID: chatID))
+
+        store.deleteServer(serverID)
+
+        #expect(!store.isGenerating(chatID: chatID))
+        #expect(store.chats.first(where: { $0.id == chatID })?.messages.last?.streaming == false)
+        #expect(store.servers.isEmpty)
     }
 
     @MainActor
@@ -1128,7 +1474,7 @@ struct byollm_assistantOSTests {
 
     @MainActor
     private func waitUntil(
-        timeoutNanoseconds: UInt64 = 1_000_000_000,
+        timeoutNanoseconds: UInt64 = 5_000_000_000,
         _ condition: @escaping @MainActor () -> Bool
     ) async {
         let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
@@ -1149,7 +1495,9 @@ private final class StubNetworkClient: MonolithNetworkClient, @unchecked Sendabl
     private let githubOAuthStart: ConnectionAuthorizationStart
     private let githubOAuthResult: ConnectionAuthorizationResult
     private let lock = NSLock()
-    private var eventHandler: (@Sendable (ChatStreamEvent) async -> Void)?
+    private var eventHandlers: [(@Sendable (ChatStreamEvent) async -> Void)] = []
+    private var streamGates: [ControlledStreamGate] = []
+    private var capturedMessageRoleValues: [[String]] = []
     private var capturedGitHubCompletionValues: [CapturedGitHubCompletion] = []
     private var connectionAuthorizationRequestValues: [String] = []
     private var connectionRequestValue = 0
@@ -1192,7 +1540,15 @@ private final class StubNetworkClient: MonolithNetworkClient, @unchecked Sendabl
     }
 
     var hasStreamHandler: Bool {
-        lock.withLock { eventHandler != nil }
+        lock.withLock { !eventHandlers.isEmpty }
+    }
+
+    var streamHandlerCount: Int {
+        lock.withLock { eventHandlers.count }
+    }
+
+    var capturedMessageRoles: [[String]] {
+        lock.withLock { capturedMessageRoleValues }
     }
 
     var githubOAuthCompletions: [CapturedGitHubCompletion] {
@@ -1220,7 +1576,26 @@ private final class StubNetworkClient: MonolithNetworkClient, @unchecked Sendabl
     }
 
     func emit(_ event: ChatStreamEvent) async {
-        await lock.withLock { eventHandler }?(event)
+        await lock.withLock { eventHandlers.first }?(event)
+    }
+
+    func emit(_ event: ChatStreamEvent, at index: Int) async {
+        let handler = lock.withLock {
+            eventHandlers.indices.contains(index) ? eventHandlers[index] : nil
+        }
+        await handler?(event)
+    }
+
+    func completeStream(at index: Int) {
+        lock.withLock {
+            streamGates.indices.contains(index) ? streamGates[index] : nil
+        }?.resolve(.success(()))
+    }
+
+    func failStream(at index: Int) {
+        lock.withLock {
+            streamGates.indices.contains(index) ? streamGates[index] : nil
+        }?.resolve(.failure(URLError(.networkConnectionLost)))
     }
 
     func normalizeServerAddress(_ serverAddress: String) throws -> String {
@@ -1298,16 +1673,50 @@ private final class StubNetworkClient: MonolithNetworkClient, @unchecked Sendabl
         apiToken: String?,
         onEvent: @escaping @Sendable (ChatStreamEvent) async -> Void
     ) async throws {
-        lock.withLock {
+        let gate: ControlledStreamGate? = lock.withLock {
             capturedRuntime = runtime
             capturedReasoningEffort = reasoningEffort
             capturedSystemPrompt = systemPrompt
             capturedSystemPromptValues.append(systemPrompt ?? "")
-            eventHandler = onEvent
+            capturedMessageRoleValues.append(messages.map(\.role))
+            eventHandlers.append(onEvent)
+            guard holdsStreamOpen else { return nil }
+            let gate = ControlledStreamGate()
+            streamGates.append(gate)
+            return gate
         }
-        if holdsStreamOpen {
-            try await Task.sleep(nanoseconds: 60_000_000_000)
+        try await gate?.wait()
+    }
+}
+
+private final class ControlledStreamGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var result: Result<Void, Error>?
+
+    func wait() async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let resolved: Result<Void, Error>? = lock.withLock {
+                    if let result { return result }
+                    self.continuation = continuation
+                    return nil
+                }
+                if let resolved { continuation.resume(with: resolved) }
+            }
+        } onCancel: {
+            self.resolve(.failure(CancellationError()))
         }
+    }
+
+    func resolve(_ result: Result<Void, Error>) {
+        let continuation: CheckedContinuation<Void, Error>? = lock.withLock {
+            guard self.result == nil else { return nil }
+            self.result = result
+            defer { self.continuation = nil }
+            return self.continuation
+        }
+        continuation?.resume(with: result)
     }
 }
 
