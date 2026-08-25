@@ -7,7 +7,7 @@ scheme="byollm-assistantOS"
 configuration="Release"
 export_options="$repo_root/scripts/testflight/ExportOptions.plist"
 
-authentication_args=()
+authentication_args=(-allowProvisioningUpdates)
 if [[ -n "${APP_STORE_CONNECT_KEY_PATH:-}" || -n "${APP_STORE_CONNECT_KEY_ID:-}" || -n "${APP_STORE_CONNECT_ISSUER_ID:-}" ]]; then
   if [[ -z "${APP_STORE_CONNECT_KEY_PATH:-}" || -z "${APP_STORE_CONNECT_KEY_ID:-}" || -z "${APP_STORE_CONNECT_ISSUER_ID:-}" ]]; then
     echo "APP_STORE_CONNECT_KEY_PATH, APP_STORE_CONNECT_KEY_ID, and APP_STORE_CONNECT_ISSUER_ID must be set together." >&2
@@ -20,6 +20,7 @@ if [[ -n "${APP_STORE_CONNECT_KEY_PATH:-}" || -n "${APP_STORE_CONNECT_KEY_ID:-}"
   fi
 
   authentication_args=(
+    -allowProvisioningUpdates
     -authenticationKeyPath "$APP_STORE_CONNECT_KEY_PATH"
     -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID"
     -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID"
@@ -61,7 +62,6 @@ if [[ "${SKIP_TESTFLIGHT_ARCHIVE:-0}" != "1" ]]; then
     -configuration "$configuration" \
     -destination "generic/platform=iOS" \
     -archivePath "$archive_path" \
-    -allowProvisioningUpdates \
     "${authentication_args[@]}" \
     archive
 elif [[ ! -d "$archive_path" ]]; then
@@ -75,7 +75,6 @@ xcodebuild \
   -archivePath "$archive_path" \
   -exportPath "$export_path" \
   -exportOptionsPlist "$export_options" \
-  -allowProvisioningUpdates \
   "${authentication_args[@]}"
 
 echo "Upload submitted: Monolith $marketing_version ($build_number)"
