@@ -1,13 +1,12 @@
 from pathlib import Path
 
 
-def test_ios_chat_view_has_attachment_preview_strip():
+def test_ios_composer_has_attachment_preview_and_remove_action():
     """
     Regression guard: the chat composer should render inline attachment previews
     (thumbnail tiles with an X remove button) when attachments are staged.
     """
-    swift = Path("byollm-assistantOS/ChatView.swift").read_text(encoding="utf-8")
-    assert "attachmentPreviewStrip" in swift
-    assert "xmark.circle.fill" in swift
-    assert "userMessageAttachmentsView" in swift
-
+    swift = Path("byollm-assistantOS/MonolithChat/ComposerView.swift").read_text(encoding="utf-8")
+    assert "if let attachment = store.attach" in swift
+    assert "store.clearAttach()" in swift
+    assert 'accessibilityLabel("Remove \\(attachment)")' in swift

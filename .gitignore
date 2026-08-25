@@ -12,3 +12,4 @@ wheels/
 # Xcode user-specific state (should never be committed)
 *.xcuserstate
 **/xcuserdata/
+.omx/
