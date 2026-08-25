@@ -10,6 +10,25 @@ node server.mjs
 
 Only load modules controlled by the gateway operator. Harness modules execute inside the gateway process with the gateway's filesystem and environment access.
 
+The repository includes operator-loadable modules for Apache Maka and Hermes:
+
+```sh
+MONOLITH_HARNESS_MODULES=/path/to/harnesses/maka.mjs,/path/to/harnesses/hermes.mjs \
+MAKA_BINARY=/path/to/maka \
+MAKA_CONNECTION=env-deepseek \
+MAKA_MODEL_ID=deepseek-v4-flash-0731 \
+HERMES_BINARY=/path/to/hermes-acp \
+HERMES_HOME=/path/to/hermes-home \
+HERMES_MODEL_ID=deepseek-v4-flash-0731 \
+node server.mjs
+```
+
+Maka uses its non-interactive `maka run` surface. The adapter keeps bounded conversation context in the gateway and sends cancellation to the active CLI process. Hermes uses ACP 0.9 over stdio and preserves its native streamed text, thinking, tool lifecycle, and cancellation. Hermes ACP does not currently support per-session reasoning-effort changes, so the operator's `config.yaml` remains authoritative even when the client selects another effort.
+
+Maka defaults to its approval boundary; set `MAKA_YOLO=1` only inside a workspace where unattended file and network access is acceptable. The Hermes ACP adapter denies permission requests because the mobile protocol does not yet expose an approval UI. Accordingly, `/v1/runtimes` advertises only its effective read/search surface by default.
+
+Maka model connections do not all accept reasoning levels. Set `MAKA_REASONING_EFFORT=1` only after the configured connection declares that capability; otherwise the adapter omits `--thinking` rather than making every request fail.
+
 Each module exports a default factory, or a named `createHarness` factory. The factory receives `{ config, cwd, env }` and returns one registration or an array of registrations:
 
 ```js
